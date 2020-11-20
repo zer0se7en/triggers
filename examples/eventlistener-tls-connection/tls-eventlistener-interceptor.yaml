@@ -30,12 +30,12 @@ spec:
               - name: TLS_CERT
                 valueFrom:
                   secretKeyRef:
-                    name: tls-secret-key
+                    name: tls-key-secret
                     key: tls.crt
               - name: TLS_KEY
                 valueFrom:
                   secretKeyRef:
-                    name: tls-secret-key
+                    name: tls-key-secret
                     key: tls.key
 ---
 apiVersion: triggers.tekton.dev/v1alpha1
