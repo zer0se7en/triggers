@@ -57,11 +57,15 @@ var _ kmeta.OwnerRefable = (*EventListener)(nil)
 // EventListenerSpec defines the desired state of the EventListener, represented
 // by a list of Triggers.
 type EventListenerSpec struct {
-	ServiceAccountName string                 `json:"serviceAccountName,omitempty"`
-	Triggers           []EventListenerTrigger `json:"triggers"`
-	NamespaceSelector  NamespaceSelector      `json:"namespaceSelector,omitempty"`
-	LabelSelector      *metav1.LabelSelector  `json:"labelSelector,omitempty"`
-	Resources          Resources              `json:"resources,omitempty"`
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	// +listType=atomic
+	Triggers []EventListenerTrigger `json:"triggers,omitempty"`
+	// Trigger groups allow for centralized processing of an interceptor chain
+	// +listType=atomic
+	TriggerGroups     []EventListenerTriggerGroup `json:"triggerGroups,omitempty"`
+	NamespaceSelector NamespaceSelector           `json:"namespaceSelector,omitempty"`
+	LabelSelector     *metav1.LabelSelector       `json:"labelSelector,omitempty"`
+	Resources         Resources                   `json:"resources,omitempty"`
 }
 
 type Resources struct {
@@ -76,12 +80,14 @@ type CustomResource struct {
 type KubernetesResource struct {
 	Replicas           *int32             `json:"replicas,omitempty"`
 	ServiceType        corev1.ServiceType `json:"serviceType,omitempty"`
+	ServicePort        *int32             `json:"servicePort,omitempty"`
 	duckv1.WithPodSpec `json:"spec,omitempty"`
 }
 
 type PodTemplate struct {
 	// If specified, the pod's tolerations.
 	// +optional
+	// +listType=atomic
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 
 	// NodeSelector is a selector which must be true for the pod to fit on a node.
@@ -96,11 +102,13 @@ type PodTemplate struct {
 // TriggerTemplate to then create resources from. TriggerRef can also be
 // provided instead of TriggerBinding, Interceptors and TriggerTemplate
 type EventListenerTrigger struct {
+	// +listType=atomic
 	Bindings   []*EventListenerBinding `json:"bindings,omitempty"`
 	Template   *EventListenerTemplate  `json:"template,omitempty"`
 	TriggerRef string                  `json:"triggerRef,omitempty"`
 	// +optional
-	Name         string              `json:"name,omitempty"`
+	Name string `json:"name,omitempty"`
+	// +listType=atomic
 	Interceptors []*EventInterceptor `json:"interceptors,omitempty"`
 	// ServiceAccountName optionally associates credentials with each trigger;
 	// more granular authorization for
@@ -110,6 +118,20 @@ type EventListenerTrigger struct {
 	// multi-tenant model based scenarios
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+}
+
+// EventListenerTriggerGroup defines a group of Triggers that share a common set of interceptors
+type EventListenerTriggerGroup struct {
+	Name string `json:"name"`
+	// +listType=atomic
+	Interceptors    []*TriggerInterceptor        `json:"interceptors"`
+	TriggerSelector EventListenerTriggerSelector `json:"triggerSelector"`
+}
+
+// EventListenerTriggerSelector  defines ways to select a group of triggers using their metadata
+type EventListenerTriggerSelector struct {
+	NamespaceSelector NamespaceSelector     `json:"namespaceSelector,omitempty"`
+	LabelSelector     *metav1.LabelSelector `json:"labelSelector,omitempty"`
 }
 
 // EventInterceptor provides a hook to intercept and pre-process events
@@ -123,7 +145,7 @@ type SecretRef struct {
 	SecretName string `json:"secretName,omitempty"`
 }
 
-// EventListenerBinding refers to a particular TriggerBinding or ClusterTriggerBindingresource.
+// EventListenerBinding refers to a particular TriggerBinding or ClusterTriggerBinding resource.
 type EventListenerBinding = TriggerSpecBinding
 
 // EventListenerTemplate refers to a particular TriggerTemplate resource.
@@ -165,6 +187,7 @@ type EventListenerConfig struct {
 // +k8s:openapi-gen=true
 type NamespaceSelector struct {
 	// List of namespace names.
+	// +listType=atomic
 	MatchNames []string `json:"matchNames,omitempty"`
 }
 
@@ -272,6 +295,12 @@ func (els *EventListenerStatus) SetConditionsForDynamicObjects(conditions v1beta
 			Message: cond.Message,
 		})
 	}
+
+	els.SetCondition(&apis.Condition{
+		Type:    apis.ConditionReady,
+		Status:  corev1.ConditionTrue,
+		Message: "EventListener is ready",
+	})
 }
 
 // SetExistsCondition simplifies setting the exists conditions on the

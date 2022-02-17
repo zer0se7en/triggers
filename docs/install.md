@@ -14,7 +14,7 @@ If you want to test Triggers from `HEAD`, see the
 
 ## Prerequisites
 
-You must satisfy the following prerequisties to set up Tekton Triggers:
+You must satisfy the following prerequisites to set up Tekton Triggers:
 
 * You must have a Kubernetes Cluster running Kubernetes 1.18 or above.
 
@@ -77,6 +77,11 @@ To customize the behavior of the Triggers Controller, modify the ConfigMap `feat
 most stable features to be used. Set it to "alpha" to allow alpha
 features (in addition to stable features) to be used. Note that this flag only applies to the v1beta1 apiVersion.
 
+- `labels-exclusion-pattern`: set this field with regex pattern which will 
+exclude labels matching the pattern from getting added to resources created 
+by the EventListener such as the deployment. By default, there is no value is set
+for this field so all labels added to the EventListener are propagated down.
+
 For example:
 
 ```yaml
@@ -85,4 +90,6 @@ kind: ConfigMap
 metadata:
   name: feature-flags-triggers
 data:
-  enable-api-fields: "alpha" # Allow "alpha" fields to be used in v1beta1 Triggers' resources. Defaults to "stable" features only.``
+  enable-api-fields: "alpha" # Allow "alpha" fields to be used in v1beta1 Triggers' resources. Defaults to "stable" features only.
+  labels-exclusion-pattern: "^tekton-dev-"
+```

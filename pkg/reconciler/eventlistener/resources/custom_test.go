@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"testing"
@@ -87,6 +88,10 @@ func TestCustomObject(t *testing.T) {
 		map[string]interface{}{
 			"name":  "NAME",
 			"value": eventListenerName,
+		},
+		map[string]interface{}{
+			"name":  "EL_EVENT",
+			"value": "disable",
 		},
 	}
 
@@ -296,7 +301,7 @@ func TestCustomObject(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := MakeCustomObject(tt.el, &reconcilersource.EmptyVarsGenerator{}, config)
+			got, err := MakeCustomObject(context.Background(), tt.el, &reconcilersource.EmptyVarsGenerator{}, config)
 			if err != nil {
 				t.Fatalf("MakeCustomObject() = %v", err)
 			}
@@ -319,7 +324,7 @@ func TestCustomObjectError(t *testing.T) {
 
 	config := *MakeConfig()
 
-	got, err := MakeCustomObject(makeEL(func(el *v1beta1.EventListener) {
+	got, err := MakeCustomObject(context.Background(), makeEL(func(el *v1beta1.EventListener) {
 		el.Spec.Resources.CustomResource = &v1beta1.CustomResource{
 			RawExtension: runtime.RawExtension{
 				Raw: []byte(`garbage`),
@@ -328,5 +333,241 @@ func TestCustomObjectError(t *testing.T) {
 	}), &reconcilersource.EmptyVarsGenerator{}, config)
 	if err == nil {
 		t.Fatalf("MakeCustomObject() = %v, wanted error", got)
+	}
+}
+
+func TestUpdateCustomObject(t *testing.T) {
+	originalMetadata := map[string]interface{}{
+		"name": eventListenerName,
+		"labels": map[string]interface{}{
+			"app.kubernetes.io/managed-by": "EventListener",
+		},
+		"annotations": map[string]interface{}{
+			"key": "value",
+		},
+		"ownerReferences": []interface{}{
+			map[string]interface{}{
+				"apiVersion":         "triggers.tekton.dev/v1beta1",
+				"blockOwnerDeletion": true,
+				"controller":         true,
+				"kind":               "EventListener",
+				"name":               eventListenerName,
+				"uid":                "",
+			},
+		},
+	}
+	updatedMetadata := map[string]interface{}{
+		"name": "updatedname",
+		"labels": map[string]interface{}{
+			"app.kubernetes.io/part-of": "Triggers",
+		},
+		"annotations": map[string]interface{}{
+			"creator": "tekton",
+		},
+		"ownerReferences": []interface{}{
+			map[string]interface{}{
+				"apiVersion":         "triggers.tekton.dev/v1beta1",
+				"blockOwnerDeletion": true,
+				"controller":         true,
+				"kind":               "EventListener",
+				"name":               eventListenerName,
+				"uid":                "asbdhfjfk",
+			},
+		},
+	}
+
+	tests := []struct {
+		name         string
+		originalData *unstructured.Unstructured
+		updatedData  *unstructured.Unstructured
+		updated      bool
+	}{{
+		name: "entire object update with single container",
+		originalData: &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "serving.knative.dev/v1",
+				"kind":       "Service",
+				"metadata":   originalMetadata,
+				"spec": map[string]interface{}{
+					"template": map[string]interface{}{
+						"metadata": originalMetadata,
+						"spec": map[string]interface{}{
+							"serviceAccountName": "default",
+							"tolerations": []interface{}{
+								map[string]interface{}{
+									"key":      "key",
+									"value":    "value",
+									"operator": "Equal",
+									"effect":   "NoSchedule",
+								},
+							},
+							"nodeSelector": map[string]interface{}{
+								"app": "test",
+							},
+							"volumes": []interface{}{
+								map[string]interface{}{
+									"name": "volume",
+								},
+							},
+							"containers": []interface{}{
+								map[string]interface{}{
+									"name":  "event-listener",
+									"image": DefaultImage,
+									"args": []interface{}{
+										"--writetimeout=" + strconv.FormatInt(DefaultWriteTimeout, 10),
+									},
+									"env": []interface{}{
+										map[string]interface{}{
+											"name": "K_LOGGING_CONFIG",
+										},
+									},
+									"ports": []interface{}{
+										map[string]interface{}{
+											"containerPort": int64(8080),
+											"protocol":      "TCP",
+										},
+									},
+									"resources": map[string]interface{}{
+										"limits": map[string]interface{}{
+											"cpu": "101m",
+										},
+									},
+									"readinessProbe": map[string]interface{}{
+										"httpGet": map[string]interface{}{
+											"path":   "/live",
+											"port":   int64(0),
+											"scheme": "HTTP",
+										},
+										"successThreshold": int64(1),
+									},
+									"command": []interface{}{
+										"bin/bash",
+									},
+									"volumeMounts": []interface{}{
+										map[string]interface{}{
+											"name":      "vm",
+											"mountPath": "/tmp/test",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		updatedData: &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "serving.knative.dev/v1",
+				"kind":       "Service",
+				"metadata":   updatedMetadata,
+				"spec": map[string]interface{}{
+					"template": map[string]interface{}{
+						"metadata": updatedMetadata,
+						"spec": map[string]interface{}{
+							"serviceAccountName": "default1",
+							"tolerations": []interface{}{
+								map[string]interface{}{
+									"key":      "key1",
+									"value":    "value1",
+									"operator": "NotEqual",
+									"effect":   "Schedule",
+								},
+							},
+							"nodeSelector": map[string]interface{}{
+								"app1": "test1",
+							},
+							"volumes": []interface{}{
+								map[string]interface{}{
+									"name1": "volume1",
+								},
+							},
+							"containers": []interface{}{
+								map[string]interface{}{
+									"name":  "event-listener1",
+									"image": "image2",
+									"args": []interface{}{
+										"--readtimeout=" + strconv.FormatInt(DefaultReadTimeout, 10),
+									},
+									"env": []interface{}{
+										map[string]interface{}{
+											"name": "K_METRICS_CONFIG",
+										},
+									},
+									"ports": []interface{}{
+										map[string]interface{}{
+											"containerPort": int64(8888),
+											"protocol":      "UDP",
+										},
+									},
+									"resources": map[string]interface{}{
+										"limits": map[string]interface{}{
+											"memory": "128",
+										},
+									},
+									"readinessProbe": map[string]interface{}{
+										"httpGet": map[string]interface{}{
+											"path":   "/ready",
+											"port":   int64(0),
+											"scheme": "HTTP",
+										},
+										"successThreshold": int64(1),
+									},
+									"command": []interface{}{
+										"ls -lrt",
+									},
+									"volumeMounts": []interface{}{
+										map[string]interface{}{
+											"name":      "vm",
+											"mountPath": "/tmp/test1",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		updated: true,
+	}, {
+		name: "entire object update without container",
+		originalData: &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "serving.knative.dev/v1",
+				"kind":       "Service",
+				"metadata":   originalMetadata,
+				"spec": map[string]interface{}{
+					"template": map[string]interface{}{
+						"metadata": originalMetadata,
+					},
+				},
+			},
+		},
+		updatedData: &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "serving.knative.dev/v1",
+				"kind":       "Service",
+				"metadata":   updatedMetadata,
+				"spec": map[string]interface{}{
+					"template": map[string]interface{}{
+						"metadata": updatedMetadata,
+					},
+				},
+			},
+		},
+		updated: true,
+	}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, _, err := UpdateCustomObject(tt.originalData, tt.updatedData)
+			if err != nil {
+				t.Fatalf("UpdateCustomObject() = %v", err)
+			}
+			if diff := cmp.Diff(tt.updated, got); diff != "" {
+				t.Errorf("UpdateCustomObject() did not return expected. -want, +got: %s", diff)
+			}
+		})
 	}
 }

@@ -19,18 +19,20 @@ If you need to modify, filter, or validate the event payload data before passing
 or more [`Interceptors`](./interceptors.md).
 
 - [Structure of an `EventListener`](#structure-of-an-eventlistener)
-- [Specifying the Kubernetes service account](#specifiying-the-kubernetes-service-account)
+- [Specifying the Kubernetes service account](#specifying-the-kubernetes-service-account)
 - [Specifying `Triggers`](#specifying-triggers)
+- [Specifying `TriggerGroups`](#specifying-triggergroups)
 - [Specifying `Resources`](#specifying-resources)
   - [Specifying a `kubernetesResource` object](#specifying-a-kubernetesresource-object)
+    - [Specifying `Service` configuration](#specifying-service-configuration)
     - [Specifying `Replicas`](#specifying-replicas)
   - [Specifying a `CustomResource` object](#specifying-a-customresource-object)
     - [Contract for the `CustomResource` object](#contract-for-the-customresource-object)
 - [Specifying `Interceptors`](#specifying-interceptors)
 - [Constraining `EventListeners` to specific namespaces](#constraining-eventlisteners-to-specific-namespaces)
-- [Disabling Payload Validationn](#disabling-payload-validation)
+- [Constraining `EventListeners` to specific labels](#constraining-eventlisteners-to-specific-labels)
+- [Disabling Payload Validation](#disabling-payload-validation)
 - [Labels in `EventListeners`](#labels-in-eventlisteners)
-  - [Constraining `EventListeners` to specific labels](#constraining-eventlisteners-to-specific-labels)
 - [Specifying `EventListener` timeouts](#specifying-eventlistener-timeouts)
 - [Annotations in `EventListeners`](#annotations-in-eventlisteners)
 - [Understanding `EventListener` response](#understanding-eventlistener-response)
@@ -39,7 +41,6 @@ or more [`Interceptors`](./interceptors.md).
 - [Configuring logging for `EventListeners`](#configuring-logging-for-eventlisteners)
 - [Exposing an `EventListener` outside of the cluster](#exposing-an-eventlistener-outside-of-the-cluster)
   - [Exposing an `EventListener` using a Kubernetes `Ingress` object](#exposing-an-eventlistener-using-a-kubernetes-ingress-object)
-  - [Exposing an `EventListener` using the NGINX Ingress Controller](#exposing-an-eventlistener-using-the-nginx-ingress-controller)
   - [Exposing an `EventListener` using OpenShift Route](#exposing-an-eventlistener-using-openshift-route)
 - [Understanding the deployment of an `EventListener`](#understanding-the-deployment-of-an-eventlistener)
 - [Deploying `EventListeners` in multi-tenant scenarios](#deploying-eventlisteners-in-multi-tenant-scenarios)
@@ -56,7 +57,7 @@ An `EventListener` definition consists of the following fields:
   - [`kind`][kubernetes-overview] - specifies that this Kubernetes resource is an `EventListener` object
   - [`metadata`][kubernetes-overview] - specifies data that uniquely identifies this `EventListener` object, for example a `name`
   - [`spec`][kubernetes-overview] - specifies the configuration of your `EventListener`:
-    - [`serviceAccountName`](#specifiying-the-kubernetes-service-account) - Specifies the `ServiceAccount` the `EventListener` will use to instantiate Tekton resources
+    - [`serviceAccountName`](#specifying-the-kubernetes-service-account) - Specifies the `ServiceAccount` the `EventListener` will use to instantiate Tekton resources
 - Optional:
   - [`triggers`](#specifying-triggers) - specifies a list of `Triggers` to execute upon event detection
   - [`resources`](#specifying-resources) - specifies the resources that will be available to the event listening service
@@ -90,7 +91,7 @@ specifies the following fields:
 - `name` - (optional) a valid [Kubernetes name](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set) that uniquely identifies the `Trigger`
 - `interceptors` - (optional) a list of [`Interceptors`](#specifying-interceptors) that will process event payload data before passing it to the associated `TriggerBinding`
 - `bindings` - (optional) a list of `TriggerBindings` for this `Trigger`; you can either reference existing `TriggerBindings` or embed their definitions directly
-- `template` - (optional) a list of `TriggerTemplates` for this `Trigger`; you can either reference existing `TriggerTemplates` or embed their definitions directly
+- `template` - (optional) a `TriggerTemplate` for this `Trigger`; you can either reference an existing `TriggerTemplate` or embed its definition directly
 - `triggerRef` - (optional) a reference to an external [`Trigger`](./triggers.md)
 
 Below is an example `Trigger` definition that references the desired `TriggerBindings`, `TriggerTemplates`, and `Interceptors`:
@@ -166,6 +167,90 @@ rules:
   verbs: ["impersonate"]
 ```
 
+## Specifying `TriggerGroups`
+
+`TriggerGroups` is a feature that allows you to specify a set of interceptors that will process before a set of 
+`Trigger` resources are processed by the eventlistener. The goal of this feature is described in 
+[TEP-0053](https://github.com/tektoncd/community/blob/main/teps/0053-nested-triggers.md). `TriggerGroups` allow for 
+a common set of interceptors to be defined inline in the `EventListenerSpec` before `Triggers` are invoked. 
+
+`TriggerGroups` is currently an `alpha` feature. To use it, you use the v1beta1 API version with the 
+`enable-api-fields`  [feature flag set to `alpha`](./install.md#Customizing-the-Triggers-Controller-behavior).
+
+You can optionally specify one or more `Triggers` that define the actions to take when the `EventListener` detects a qualifying event. You can specify *either* a reference to an
+external `Trigger` object *or* reference/define the `TriggerBindings`, `TriggerTemplates`, and `Interceptors` in the `Trigger` definition. A `TriggerGroup` definition specifies the following fields:
+
+- `name` - (optional) a valid [Kubernetes name](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set) that uniquely identifies the `TriggerGroup`
+- `interceptors` - a list of [`Interceptors`](#specifying-interceptors) that will process event payload data before passing it to the downstream `Triggers`
+- `triggerSelector` - a combination of a Kubernetes `labelSelector` and a `namespaceSelector` as defined later [in this document](#constraining-eventlisteners-to-specific-namespaces). These two fields work together to define the `Triggers` that will be processed once `Interceptors` processing completes.
+
+Below is an example EventListener that defines an inline `triggerGroup`:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: eventlistener
+spec:
+  triggerGroups:
+  - name: github-pr-group
+    interceptors:
+    - name: "validate GitHub payload and filter on eventType"
+      ref:
+        name: "github"
+      params:
+      - name: "secretRef"
+        value:
+          secretName: github-secret
+          secretKey: secretToken
+      - name: "eventTypes"
+        value: ["pull_request"]
+    triggerSelector:
+      labelSelector:
+        matchLabels:
+          type: github-pr
+```
+
+This configuration would first process any event that is sent to the `EventListener` and determine if it matches
+the outlined conditions. If it passes these conditions, it will use the `triggerSelector` matching criteria to determine
+the target `Trigger` resources to continue processing.
+
+Any `extensions` fields added during `triggerGroup` processing are passed to the downstream `Trigger` execution. This allows
+for shared data across all Triggers that are processed after group execution completes. As an example, `extensions.myfield` would
+be available to all `Trigger` resources matched by this group:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: eventlistener
+spec:
+  triggerGroups:
+  - name: cel-filter-group
+    interceptors:
+    - name: "validate body and add field"
+      ref:
+        name: "cel"
+      params:
+      - name: "filter"
+        value: "body.action in ['opened', 'reopened']"
+      - name: "overlays"
+        value:
+        - key: myfield
+          expression: "body.pull_request.head.sha.truncate(7)"
+    triggerSelector:
+      namespaceSelector:
+        matchNames:
+        - foo
+      labelSelector:
+        matchLabels:
+          type: cel-preprocessed
+```
+
+At this time, each `TriggerGroup` determines its own downstream Triggers, so if two separate groups select the same
+downstream `Trigger` resources, it may be executed multiple times. If you use this feature, ensure that `Trigger` resources
+are labeled to be queried by the appropriate set of `TriggerGroups`.
+
 ## Specifying `Resources`
 
 You can optionally customize the sink deployment for your `EventListener` using the `resources` field. It accepts the following types of objects:
@@ -197,6 +282,7 @@ spec:
   resources:
     kubernetesResource:
       serviceType: NodePort
+      servicePort: 80
       spec:
         template:
           metadata:
@@ -215,11 +301,23 @@ spec:
               effect: NoSchedule
 ```
 
+#### Specifying `Service` configuration
+
+The type and port for the `Service` created for the `EventListener` can be configured via the `ServiceType` and `ServicePort`
+specifications respectively. By default, the `Service` type is set to `ClusterIP` and port is set to `8080`.
+```yaml
+spec:
+  resources:
+    kubernetesResource:
+      serviceType: LoadBalancer
+      servicePort: 8128
+```
+
 #### Specifying `Replicas`
 
 You can optionally use the `replicas` field to instruct Tekton Triggers to deploy more than one instance of your `EventListener` in individual Kubernetes Pods.
 If you do not specify this value, the default number of instances (and thus, the number of respective Pods) per `EventListener` is 1. If you set a value for the `replicas` field
-while creating or upgrading the `EventListener's` YAML file, that value overrides any value you set manually later as as well as a value set by any other deployment
+while creating or upgrading the `EventListener's` YAML file, that value overrides any value you set manually later as well as a value set by any other deployment
 mechanism, such as HPA.
 
 ### Specifying a `CustomResource` object
@@ -290,7 +388,7 @@ For more information, see [`Interceptors`](./interceptors.md).
 
 You can optionally specify a list of namespaces in which your `EventListener` will search for `Triggers` and instantiate the specified Tekton objects using the `namespaceSelector` field.
 
-If you omit this field, your `EventListener` will only recognize `Triggers` specified in its definition or found under one or more specified target [labels](#specifying-target-labels).
+If you omit this field, your `EventListener` will only recognize `Triggers` specified in its definition or found under one or more specified target labels.
 
 Below is an example `namespaceSelector` field that configures the `EventListener` to use the `foo` and `bar` namespaces:
 
@@ -421,7 +519,7 @@ These fields are included in `EventListener` responses, but will be removed in a
 Tekton Triggers supports both HTTP and TLS-based HTTPS connections. To configure your `EventListener` for TLS,
 add the `TLS_CERT` and `TLS_KEY` reserved environment variables using the `secretKeyRef` variable type, then
 specify a `secret` containing the `cert` and `key` files. See [TEP-0027](https://github.com/tektoncd/community/blob/master/teps/0027-https-connection-to-triggers-eventlistener.md)
-and our [TLS configuration example](../examples/eventlistener-tls-connection/README.md) for more information.
+and our [TLS configuration example](../examples/v1beta1/eventlistener-tls-connection/README.md) for more information.
 
 ## Obtaining the status of deployed `EventListeners`
 
@@ -478,61 +576,44 @@ See [the Knative documentation](https://github.com/knative/pkg/blob/main/metrics
 
 ## Exposing an `EventListener` outside of the cluster
 
-By default, `ClusterIP` services such as `EventListeners` are only accessible within the cluster on which they are running. 
-You can expose them outside of the cluster in one of the following ways:
+`EventListeners` create an underlying Kubernetes service (unless a user specifies a `customResource` EventListener deployment). 
+By convention, this service is the same name as the EventListener prefixed with `el`. So, an EventListener named `foo` 
+will create a service called `el-foo`.
+
+This service, by default is of type `ClusterIP` which means it is only accessible within the cluster on which it is running. 
+You can expose this service as you would with any regular Kubernetes service. A few ways are highlighted below:
+- Using a `LoadBalancer` Service type
 - Using a Kubernetes `Ingress` object
 - Using the NGINX Ingress Controller
 - Using OpenShift Route
 
+### Exposing an `EventListener` using a `LoadBalancer` Service
+
+If your Kuberentes cluster supports [external load balancers](https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer), 
+you can set the `serviceType` field to `LoadBalancer` to switch the Kubernetes service type:
+
+```yaml
+spec:
+  resources:
+    kubernetesResource:
+      serviceType: LoadBalancer
+```
+
+**Note:** You can find the external IP of this service by running `kubectl get svc/el-${EVENTLISTENER-NAME} -o=jsonpath='{.status.loadBalancer.ingress[0].ip}'`
+
 ### Exposing an `EventListener` using a Kubernetes `Ingress` object
 
-Use the Tekton [`create-ingress`](./getting-started/create-ingress.yaml) task to configure an `Ingress` object using self-signed certificates.
-If you are using a cloud-based Kubernetes solution such as Google Kubernetes Engine, the Kubernetes `Ingress` object will not work. Instead,
-use the NGINX Ingress Controller as described in the next section.
+You can expose the service created by the EventListener using a regular [Kubernetes Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/).
+To do this, you may first have to change the `serviceType` to `NodePort`:
 
-### Exposing an `EventListener` using the NGINX Ingress Controller
+```yaml
+spec:
+  resources:
+    kubernetesResource:
+      serviceType: NodePort
+```
 
-Below are instructions for installing and configuring the NGINX Ingress Controller with Tekton Triggers on Google Kubernetes Cluster version `1.13.7-gke.24`.
-For instructions on installing the NGINX Ingress Controller on other Kubernetes services as well as additional installation options for the example below,
-see the [NGINX Ingress Controller Installation Guide](https://kubernetes.github.io/ingress-nginx/deploy/).
-
-1. Install the NGINX Ingress Controller:
-   ```sh
-   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.34.1/deploy/static/provider/cloud/deploy.yaml
-   ```
-   
-2. Obtain the name of your `EventListener` service:
-   ```sh
-    kubectl get el <EVENTLISTENR_NAME> -o=jsonpath='{.status.configuration.generatedName}{"\n"}'
-   ```
-   
-3. Instantiate the `Ingress` object:
-   ```yaml
-   apiVersion: extensions/v1beta1
-   kind: Ingress
-   metadata:
-     name: ingress-resource
-     annotations:
-       kubernetes.io/ingress.class: nginx
-       nginx.ingress.kubernetes.io/ssl-redirect: "false"
-   spec:
-     rules:
-       - http:
-           paths:
-             - path: /
-               backend:
-                 serviceName: EVENT_LISTENER_SERVICE_NAME # REPLACE WITH YOUR SERVICE NAME FROM STEP 2
-                servicePort: 8080
-   ```
-
-   See [NGINX Configuration](https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/) for more information on configuring the NGINX Ingress Controller.
-
-4. Obtain the IP address of the `Ingress` object:
-   ```   
-   kubectl get ingress ingress-resource
-   ``` 
-
-5. Test the configuragion with `curl` or set up a GitHub Webhook that sends events to it.
+You can also use the Tekton [`create-ingress`](./getting-started/create-ingress.yaml) task to configure an `Ingress` object using self-signed certificates.
 
 ## Exposing an `EventListener` using Openshift Route
 
@@ -554,7 +635,7 @@ see [Route Configuration](https://docs.openshift.com/container-platform/4.2/netw
     oc get route el-listener  -o=jsonpath='{.spec.host}' # REPLACE el-listener WITH YOUR SERVICE NAME FROM STEP 1
    ```
    
-4. Test the configuragion with `curl` or set up a GitHub Webhook that sends events to it.
+4. Test the configuration with `curl` or set up a GitHub Webhook that sends events to it.
 
 ## Understanding the deployment of an `EventListener`
 
@@ -568,7 +649,7 @@ Below is a high-level walkthrough through the deployment of an `EventListener` u
    Tekton Triggers creates a new `Deployment` and `Service` for the `EventListener`. using the `EventListener` definition,
    [`metadata.labels`](https://github.com/tektoncd/triggers/blob/master/docs/eventlisteners.md#labels), and pre-existing values
    such as container `Image`, `Name`, and `Port`. Tekton Triggers uses the `EventListener` name prefixed with `el-` to name the
-   `Deployment` and `Service` when instantiating them. For exampl,e if the `EventListener` name is `foo`, the `Deployment` and
+   `Deployment` and `Service` when instantiating them. For example, if the `EventListener` name is `foo`, the `Deployment` and
    `Service` names are named `el-foo`.
 
 2. Use `kubectl` to verify the `Deployment` is running on your cluster:
@@ -602,7 +683,7 @@ you must be conscious of your configuration decisions, such as:
 - How to securely control how each `EventListener` and its associated objects, such as [`Interceptors`](./interceptors.md),
   interact with data on your cluster.
 
-At the minimum, each `EventListener` specifies its own Kubernetes Service account as explained earlier and
+At the minimum, each `EventListener` specifies its own Kubernetes Service account as explained earlier, and
 it acts on all events it receives with the permissions of that service account. If your business needs mandate
 more granular permission control across the `Triggers` and `Interceptors` specified in your `EventListeners`,
 you have the following options:
@@ -623,7 +704,7 @@ However, this approach has the following drawbacks:
   Kubernetes `etcd` store; on large clusters, the capacity of the `etcd` store can become a concern.
 - Since each `EventListener` requires its own HTTP port to listen for events, you must configure your network
   to allow access to each corresponding IP address and port combination unless you configure an ingress abstraction
-  layer, such as the Kubernetes `Ingress` object, the NGINX Ingress Controller, or OpenShift Route.
+  layer, such as the Kubernetes `Ingress` object,or OpenShift Route.
 
 ### Deploying multiple `EventListeners` in the same namespace
 

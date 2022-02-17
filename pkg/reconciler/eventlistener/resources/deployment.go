@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"context"
 	"os"
 	"strconv"
 
@@ -37,11 +38,11 @@ const (
 var (
 	strongerSecurityPolicy = corev1.PodSecurityContext{
 		RunAsNonRoot: ptr.Bool(true),
-		RunAsUser:    ptr.Int64(65532),
 	}
 )
 
-func MakeDeployment(el *v1beta1.EventListener, configAcc reconcilersource.ConfigAccessor, c Config) (*appsv1.Deployment, error) {
+func MakeDeployment(ctx context.Context, el *v1beta1.EventListener, configAcc reconcilersource.ConfigAccessor, c Config) (*appsv1.Deployment, error) {
+
 	opt, err := addDeploymentBits(el, c)
 	if err != nil {
 		return nil, err
@@ -49,8 +50,10 @@ func MakeDeployment(el *v1beta1.EventListener, configAcc reconcilersource.Config
 
 	container := MakeContainer(el, configAcc, c, opt, addCertsForSecureConnection(c))
 
+	filteredLabels := FilterLabels(ctx, el.Labels)
+
 	var (
-		podlabels                 = kmeta.UnionMaps(el.Labels, GenerateLabels(el.Name, c.StaticResourceLabels))
+		podlabels                 = kmeta.UnionMaps(filteredLabels, GenerateLabels(el.Name, c.StaticResourceLabels))
 		serviceAccountName        = el.Spec.ServiceAccountName
 		replicas                  *int32
 		vol                       []corev1.Volume
@@ -95,7 +98,7 @@ func MakeDeployment(el *v1beta1.EventListener, configAcc reconcilersource.Config
 	}
 
 	return &appsv1.Deployment{
-		ObjectMeta: ObjectMeta(el, c.StaticResourceLabels),
+		ObjectMeta: ObjectMeta(el, filteredLabels, c.StaticResourceLabels),
 		Spec: appsv1.DeploymentSpec{
 			Replicas: replicas,
 			Selector: &metav1.LabelSelector{
@@ -144,7 +147,8 @@ func addDeploymentBits(el *v1beta1.EventListener, c Config) (ContainerOption, er
 			Name: "SYSTEM_NAMESPACE",
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{
-					FieldPath: "metadata.namespace",
+					APIVersion: "v1",
+					FieldPath:  "metadata.namespace",
 				}},
 		}, corev1.EnvVar{
 			// METRICS_PROMETHEUS_PORT defines the port exposed by the EventListener metrics endpoint

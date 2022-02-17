@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/tektoncd/triggers/pkg/apis/triggers/v1beta1"
@@ -47,17 +48,24 @@ var metricsPort = corev1.ServicePort{
 	},
 }
 
-func MakeService(el *v1beta1.EventListener, c Config) *corev1.Service {
+func MakeService(ctx context.Context, el *v1beta1.EventListener, c Config) *corev1.Service {
 	// for backward compatibility with original behavior
-	var serviceType corev1.ServiceType
+	var (
+		serviceType corev1.ServiceType
+		servicePort corev1.ServicePort
+	)
 	if el.Spec.Resources.KubernetesResource != nil && el.Spec.Resources.KubernetesResource.ServiceType != "" {
 		serviceType = el.Spec.Resources.KubernetesResource.ServiceType
 	}
+	if el.Spec.Resources.KubernetesResource != nil && el.Spec.Resources.KubernetesResource.ServicePort != nil {
+		port := int(*el.Spec.Resources.KubernetesResource.ServicePort)
+		c.Port = &port
+	}
 
-	servicePort := ServicePort(el, c)
+	servicePort = ServicePort(el, c)
 
 	return &corev1.Service{
-		ObjectMeta: ObjectMeta(el, c.StaticResourceLabels),
+		ObjectMeta: ObjectMeta(el, FilterLabels(ctx, el.Labels), c.StaticResourceLabels),
 		Spec: corev1.ServiceSpec{
 			Selector: GenerateLabels(el.Name, c.StaticResourceLabels),
 			Type:     serviceType,

@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
-	rtesting "knative.dev/pkg/reconciler/testing"
 )
 
 func TestGetResourcesFromClients(t *testing.T) {
@@ -119,12 +118,6 @@ func TestGetResourcesFromClients(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "foo",
 			Name:      "my-service2",
-		},
-	}
-	configMap1 := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "foo",
-			Name:      "my-config-map-1",
 		},
 	}
 	secret := &corev1.Secret{
@@ -251,13 +244,6 @@ func TestGetResourcesFromClients(t *testing.T) {
 				Namespaces: []*corev1.Namespace{nsFoo, nsTektonPipelines},
 				Services:   []*corev1.Service{service1},
 			},
-		},
-		{
-			name: "only ConfigMaps (and namespaces)",
-			Resources: Resources{
-				Namespaces: []*corev1.Namespace{nsFoo, nsTektonPipelines},
-				ConfigMaps: []*corev1.ConfigMap{configMap1},
-			},
 		}, {
 			name: "only secrets (and namespaces)",
 			Resources: Resources{
@@ -274,7 +260,7 @@ func TestGetResourcesFromClients(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, _ := rtesting.SetupFakeContext(t)
+			ctx, _ := SetupFakeContext(t)
 			clients := SeedResources(t, ctx, tt.Resources)
 			actualResources, err := GetResourcesFromClients(clients)
 			if err != nil {

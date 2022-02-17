@@ -18,7 +18,7 @@ package eventlistener
 
 import (
 	"context"
-	stdError "errors"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -27,7 +27,6 @@ import (
 	"github.com/tektoncd/triggers/pkg/apis/triggers/v1beta1"
 	triggersclientset "github.com/tektoncd/triggers/pkg/client/clientset/versioned"
 	eventlistenerreconciler "github.com/tektoncd/triggers/pkg/client/injection/reconciler/triggers/v1beta1/eventlistener"
-	listers "github.com/tektoncd/triggers/pkg/client/listers/triggers/v1beta1"
 	dynamicduck "github.com/tektoncd/triggers/pkg/dynamic"
 	"github.com/tektoncd/triggers/pkg/reconciler/eventlistener/resources"
 	"golang.org/x/xerrors"
@@ -36,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	appsv1lister "k8s.io/client-go/listers/apps/v1"
@@ -76,10 +76,8 @@ type Reconciler struct {
 	TriggersClientSet triggersclientset.Interface
 
 	// listers index properties about resources
-	configmapLister     corev1lister.ConfigMapLister
-	deploymentLister    appsv1lister.DeploymentLister
-	eventListenerLister listers.EventListenerLister
-	serviceLister       corev1lister.ServiceLister
+	deploymentLister appsv1lister.DeploymentLister
+	serviceLister    corev1lister.ServiceLister
 
 	// config accessor for observability/logging/tracing
 	configAcc reconcilersource.ConfigAccessor
@@ -114,11 +112,16 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, el *v1beta1.EventListene
 	if el.Spec.Resources.CustomResource == nil {
 		el.Status.SetReadyCondition()
 	}
+	if len(el.Finalizers) > 0 {
+		// TODO(dibyom): Remove this in a future release once we are sure no one is using pre v0.16 resources
+		r.removeFinalizer(ctx, el)
+	}
+
 	return wrapError(serviceReconcileError, deploymentReconcileError)
 }
 
 func (r *Reconciler) reconcileService(ctx context.Context, el *v1beta1.EventListener) error {
-	service := resources.MakeService(el, r.config)
+	service := resources.MakeService(ctx, el, r.config)
 
 	existingService, err := r.serviceLister.Services(el.Namespace).Get(el.Status.Configuration.GeneratedResourceName)
 	switch {
@@ -178,7 +181,7 @@ func (r *Reconciler) reconcileService(ctx context.Context, el *v1beta1.EventList
 }
 
 func (r *Reconciler) reconcileDeployment(ctx context.Context, el *v1beta1.EventListener) error {
-	deployment, err := resources.MakeDeployment(el, r.configAcc, r.config)
+	deployment, err := resources.MakeDeployment(ctx, el, r.configAcc, r.config)
 	if err != nil {
 		logging.FromContext(ctx).Error(err)
 		return err
@@ -241,7 +244,7 @@ func (r *Reconciler) reconcileDeployment(ctx context.Context, el *v1beta1.EventL
 }
 
 func (r *Reconciler) reconcileCustomObject(ctx context.Context, el *v1beta1.EventListener) error {
-	data, err := resources.MakeCustomObject(el, r.configAcc, r.config)
+	data, err := resources.MakeCustomObject(ctx, el, r.configAcc, r.config)
 	if err != nil {
 		logging.FromContext(ctx).Errorf("unable to construct custom object", err)
 		return err
@@ -277,19 +280,46 @@ func (r *Reconciler) reconcileCustomObject(ctx context.Context, el *v1beta1.Even
 			}
 		}
 
+		var updated bool
+		// Preserve any externally added annotations
+		data.SetAnnotations(kmeta.UnionMaps(data.GetAnnotations(), existingCustomObject.GetAnnotations()))
+
 		if !equality.Semantic.DeepEqual(data.GetLabels(), existingCustomObject.GetLabels()) ||
-			!equality.Semantic.DeepEqual(data.GetAnnotations(), existingCustomObject.GetAnnotations()) ||
-			!equality.Semantic.DeepEqual(data.Object["spec"], existingCustomObject.Object["spec"]) {
+			!equality.Semantic.DeepEqual(data.GetAnnotations(), existingCustomObject.GetAnnotations()) {
 			// Don't modify informer copy
 			existingCustomObject = existingCustomObject.DeepCopy()
 			existingCustomObject.SetLabels(data.GetLabels())
 			existingCustomObject.SetAnnotations(data.GetAnnotations())
-			existingCustomObject.Object["spec"] = data.Object["spec"]
 
-			if updated, err := r.DynamicClientSet.Resource(gvr).Namespace(data.GetNamespace()).Update(ctx, existingCustomObject, metav1.UpdateOptions{}); err != nil {
+			updated = true
+		}
+
+		if !equality.Semantic.DeepEqual(data.Object["spec"], existingCustomObject.Object["spec"]) {
+			diffExist, existingObject, err := resources.UpdateCustomObject(data, existingCustomObject)
+			if err != nil {
+				return err
+			}
+			// To avoid un necessary marshalling when there is no updates.
+			if diffExist {
+				existingMarshaledData, err := json.Marshal(existingObject)
+				if err != nil {
+					logging.FromContext(ctx).Errorf("failed to marshal custom object: %v", err)
+					return err
+				}
+				existingCustomObject = new(unstructured.Unstructured)
+				if err := existingCustomObject.UnmarshalJSON(existingMarshaledData); err != nil {
+					logging.FromContext(ctx).Errorf("failed to unmarshal to unstructured object: %v", err)
+					return err
+				}
+				updated = diffExist
+			}
+		}
+		if updated {
+			updatedData, err := r.DynamicClientSet.Resource(gvr).Namespace(data.GetNamespace()).Update(ctx, existingCustomObject, metav1.UpdateOptions{})
+			if err != nil {
 				logging.FromContext(ctx).Errorf("error updating to eventListener custom object: %v", err)
 				return err
-			} else if data.GetResourceVersion() != updated.GetResourceVersion() {
+			} else if data.GetResourceVersion() != updatedData.GetResourceVersion() {
 				logging.FromContext(ctx).Infof("Updated EventListener Custom Object %s in Namespace %s", data.GetName(), el.Namespace)
 			}
 		}
@@ -308,8 +338,8 @@ func (r *Reconciler) reconcileCustomObject(ctx context.Context, el *v1beta1.Even
 		for _, cond := range customConditions {
 			if cond.Type == apis.ConditionReady {
 				if cond.Status != corev1.ConditionTrue {
-					logging.FromContext(ctx).Warn("custom object is not yet ready")
-					return stdError.New("custom object is not yet ready")
+					logging.FromContext(ctx).Warnf("custom object is not yet ready because %s", cond.Message)
+					return fmt.Errorf("custom object is not yet ready because %s", cond.Message)
 				}
 			}
 		}
@@ -331,6 +361,21 @@ func (r *Reconciler) reconcileCustomObject(ctx context.Context, el *v1beta1.Even
 		return err
 	}
 	return nil
+}
+
+func (r *Reconciler) removeFinalizer(ctx context.Context, el *v1beta1.EventListener) {
+	// We used to need Finalizers in older versions of Triggers.
+	// They are not necessary anymore so let's remove them from any old EventListener objects
+	for i, f := range el.Finalizers {
+		if f == "eventlisteners.triggers.tekton.dev" {
+			el.Finalizers = append(el.Finalizers[:i], el.Finalizers[i+1:]...)
+			_, err := r.TriggersClientSet.TriggersV1beta1().EventListeners(el.Namespace).Update(ctx, el, metav1.UpdateOptions{})
+			if err != nil {
+				logging.FromContext(ctx).Errorf("failed to update EventListener to remove finalizer: %v", err)
+			}
+			break
+		}
+	}
 }
 
 // wrapError wraps errors together. If one of the errors is nil, the other is

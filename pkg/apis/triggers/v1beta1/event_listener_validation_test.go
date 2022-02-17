@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	pipelinev1alpha1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	pipelinev1beta1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"github.com/tektoncd/triggers/pkg/apis/triggers"
@@ -33,6 +34,11 @@ import (
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	"knative.dev/pkg/ptr"
 )
+
+var myObjectMeta = metav1.ObjectMeta{
+	Name:      "name",
+	Namespace: "namespace",
+}
 
 func Test_EventListenerValidate_OnDelete(t *testing.T) {
 	el := &triggersv1beta1.EventListener{
@@ -55,16 +61,22 @@ func Test_EventListenerValidate_OnDelete(t *testing.T) {
 }
 
 func Test_EventListenerValidate(t *testing.T) {
+	ctxWithAlphaFieldsEnabled, err := test.FeatureFlagsToContext(context.Background(), map[string]string{
+		"enable-api-fields": "alpha",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error initializing feature flags: %v", err)
+	}
+
 	tests := []struct {
-		name string
-		el   *triggersv1beta1.EventListener
+		name    string
+		el      *triggersv1beta1.EventListener
+		ctx     context.Context
+		wantErr *apis.FieldError
 	}{{
 		name: "TriggerTemplate Does Not Exist",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Template: &triggersv1beta1.EventListenerTemplate{
@@ -77,10 +89,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener No TriggerBinding",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Template: &triggersv1beta1.EventListenerTemplate{
@@ -93,10 +102,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener with TriggerRef",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					TriggerRef: "tt",
@@ -120,10 +126,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener with TriggerBinding",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Bindings: []*triggersv1beta1.EventListenerBinding{{
@@ -140,10 +143,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener with ClusterTriggerBinding",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Bindings: []*triggersv1beta1.EventListenerBinding{{
@@ -160,10 +160,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener with multiple TriggerBindings",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Bindings: []*triggersv1beta1.EventListenerBinding{{
@@ -188,10 +185,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener Webhook Interceptor",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Interceptors: []*triggersv1beta1.EventInterceptor{{
@@ -218,10 +212,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener Interceptor With Header",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Interceptors: []*triggersv1beta1.EventInterceptor{{
@@ -261,10 +252,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener Two Triggers",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Bindings: []*triggersv1beta1.EventListenerBinding{{
@@ -290,10 +278,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener with CEL interceptor",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Interceptors: []*triggersv1beta1.EventInterceptor{{
@@ -327,10 +312,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener with no trigger name",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Bindings: []*triggersv1beta1.EventListenerBinding{{
@@ -347,10 +329,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Namespace selector with label selector",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				NamespaceSelector: triggersv1beta1.NamespaceSelector{
 					MatchNames: []string{"foo"},
@@ -369,10 +348,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener with kubernetes env for podspec",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Template: &triggersv1beta1.EventListenerTemplate{
@@ -414,11 +390,13 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid Replicas for EventListener",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
+				Triggers: []triggersv1beta1.EventListenerTrigger{{
+					Template: &triggersv1beta1.EventListenerTemplate{
+						Ref: ptr.String("tt"),
+					},
+				}},
 				Resources: triggersv1beta1.Resources{
 					KubernetesResource: &triggersv1beta1.KubernetesResource{
 						Replicas: ptr.Int32(1),
@@ -429,10 +407,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener with env for TLS connection",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Template: &triggersv1beta1.EventListenerTemplate{
@@ -474,10 +449,7 @@ func Test_EventListenerValidate(t *testing.T) {
 	}, {
 		name: "Valid EventListener with custom resources",
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					TriggerRef: "triggerref",
@@ -491,11 +463,9 @@ func Test_EventListenerValidate(t *testing.T) {
 		},
 	}, {
 		name: "valid EventListener with embedded TriggerTemplate",
+		ctx:  ctxWithAlphaFieldsEnabled,
 		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
+			ObjectMeta: myObjectMeta,
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Bindings: []*triggersv1beta1.EventListenerBinding{{
@@ -526,11 +496,44 @@ func Test_EventListenerValidate(t *testing.T) {
 				}},
 			},
 		},
-	}}
+	}, {
+		name: "Valid event listener with TriggerGroup and namespaceSelector",
+		ctx:  ctxWithAlphaFieldsEnabled,
+		el: &triggersv1beta1.EventListener{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "name",
+				Namespace: "namespace",
+			},
+			Spec: triggersv1beta1.EventListenerSpec{
+				TriggerGroups: []triggersv1beta1.EventListenerTriggerGroup{{
+					Name: "my-group",
+					Interceptors: []*triggersv1beta1.TriggerInterceptor{{
+						Ref: triggersv1beta1.InterceptorRef{
+							Name: "cel",
+						},
+						Params: []triggersv1beta1.InterceptorParams{{
+							Name:  "filter",
+							Value: test.ToV1JSON(t, "has(body.repository)"),
+						}},
+					}},
+					TriggerSelector: triggersv1beta1.EventListenerTriggerSelector{
+						NamespaceSelector: triggersv1beta1.NamespaceSelector{
+							MatchNames: []string{
+								"foobar",
+							},
+						},
+					},
+				}},
+			},
+		}}}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.el.Validate(context.Background())
+			ctx := tc.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			err := tc.el.Validate(ctx)
 			if err != nil {
 				t.Errorf("EventListener.Validate() expected no error, but got one, EventListener: %v, error: %v", tc.el, err)
 			}
@@ -539,9 +542,18 @@ func Test_EventListenerValidate(t *testing.T) {
 }
 
 func TestEventListenerValidate_error(t *testing.T) {
+	ctxWithAlphaFieldsEnabled, err := test.FeatureFlagsToContext(context.Background(), map[string]string{
+		"enable-api-fields": "alpha",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error initializing feature flags: %v", err)
+	}
+
 	tests := []struct {
-		name string
-		el   *triggersv1beta1.EventListener
+		name    string
+		el      *triggersv1beta1.EventListener
+		ctx     context.Context
+		wantErr *apis.FieldError
 	}{{
 		name: "Invalid EventListener name",
 		el: &triggersv1beta1.EventListener{
@@ -557,6 +569,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue(`eventListener name 'longlonglonglonglonglonglonglonglonglonglonglonglonglonglname' must be no more than 60 characters long`, "metadata.name"),
 	}, {
 		name: "Valid EventListener with empty TriggerTemplate name",
 		el: &triggersv1beta1.EventListener{
@@ -572,6 +585,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrMissingField("spec.triggers[0].template.ref"),
 	}, {
 		name: "Invalid Annotation value",
 		el: &triggersv1beta1.EventListener{
@@ -586,8 +600,9 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue(`tekton.dev/payload-validation annotation must have value 'true' or 'false'`, "metadata.annotations"),
 	}, {
-		name: "TriggerBinding with no ref or spec",
+		name: "TriggerBinding with no ref or spec or name",
 		el: &triggersv1beta1.EventListener{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "name",
@@ -604,6 +619,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrMissingOneOf("spec.triggers[0].bindings[0].name, spec.triggers[0].bindings[0].ref, spec.triggers[0].bindings[0].spec"),
 	}, {
 		name: "Bindings invalid ref",
 		el: &triggersv1beta1.EventListener{
@@ -618,6 +634,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrMissingOneOf("spec.triggers[0].bindings[0].name, spec.triggers[0].bindings[0].ref, spec.triggers[0].bindings[0].spec"),
 	}, {
 		name: "Bindings missing kind",
 		el: &triggersv1beta1.EventListener{
@@ -632,6 +649,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue("invalid kind", "spec.triggers[0].bindings[0].kind"),
 	}, {
 		name: "Template with wrong apiVersion",
 		el: &triggersv1beta1.EventListener{
@@ -646,8 +664,9 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue("invalid apiVersion", "spec.triggers[0].template.apiVersion"),
 	}, {
-		name: "Template with missing name",
+		name: "Template with both ref and name",
 		el: &triggersv1beta1.EventListener{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "name",
@@ -655,13 +674,14 @@ func TestEventListenerValidate_error(t *testing.T) {
 			},
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
-					Bindings: []*triggersv1beta1.EventListenerBinding{{Kind: triggersv1beta1.NamespacedTriggerBindingKind, Ref: "tb"}},
-					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String(""), APIVersion: "triggersv1beta1"},
+					Bindings: []*triggersv1beta1.EventListenerBinding{{Kind: triggersv1beta1.NamespacedTriggerBindingKind, Ref: "tb", Name: "somename"}},
+					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String("tt"), APIVersion: "v1beta1"},
 				}},
 			},
 		},
+		wantErr: apis.ErrMultipleOneOf("spec.triggers[0].bindings[0].name", "spec.triggers[0].bindings[0].ref"),
 	}, {
-		name: "Interceptor Name only",
+		name: "Interceptor Name and APIVersion only",
 		el: &triggersv1beta1.EventListener{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "name",
@@ -673,14 +693,35 @@ func TestEventListenerValidate_error(t *testing.T) {
 					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String("tt")},
 					Interceptors: []*triggersv1beta1.EventInterceptor{{
 						Webhook: &triggersv1beta1.WebhookInterceptor{
-							ObjectRef: &corev1.ObjectReference{Name: "svc"},
+							ObjectRef: &corev1.ObjectReference{Name: "svc", APIVersion: "v1"},
 						},
 					}},
 				}},
 			},
 		},
+		wantErr: apis.ErrMissingField("spec.triggers[0].interceptors[0].interceptor.webhook.objectRef.kind"),
 	}, {
-		name: "Interceptor Missing ObjectRef",
+		name: "Interceptor Name and Kind only",
+		el: &triggersv1beta1.EventListener{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "name",
+				Namespace: "namespace",
+			},
+			Spec: triggersv1beta1.EventListenerSpec{
+				Triggers: []triggersv1beta1.EventListenerTrigger{{
+					Bindings: []*triggersv1beta1.EventListenerBinding{{Kind: triggersv1beta1.NamespacedTriggerBindingKind, Ref: "tb"}},
+					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String("tt")},
+					Interceptors: []*triggersv1beta1.EventInterceptor{{
+						Webhook: &triggersv1beta1.WebhookInterceptor{
+							ObjectRef: &corev1.ObjectReference{Name: "svc", Kind: "Service"},
+						},
+					}},
+				}},
+			},
+		},
+		wantErr: apis.ErrMissingField("spec.triggers[0].interceptors[0].interceptor.webhook.objectRef.apiVersion"),
+	}, {
+		name: "Interceptor Missing Interceptor",
 		el: &triggersv1beta1.EventListener{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "name",
@@ -694,6 +735,25 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrMissingField("spec.triggers[0].interceptors[0].interceptor"),
+	}, {
+		name: "Interceptor Missing ObjectRef",
+		el: &triggersv1beta1.EventListener{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "name",
+				Namespace: "namespace",
+			},
+			Spec: triggersv1beta1.EventListenerSpec{
+				Triggers: []triggersv1beta1.EventListenerTrigger{{
+					Bindings: []*triggersv1beta1.EventListenerBinding{{Kind: triggersv1beta1.NamespacedTriggerBindingKind, Ref: "tb"}},
+					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String("tt")},
+					Interceptors: []*triggersv1beta1.EventInterceptor{{
+						Webhook: &triggersv1beta1.WebhookInterceptor{},
+					}},
+				}},
+			},
+		},
+		wantErr: apis.ErrMissingField("spec.triggers[0].interceptors[0].interceptor.webhook.objectRef"),
 	}, {
 		name: "Interceptor Empty ObjectRef",
 		el: &triggersv1beta1.EventListener{
@@ -715,6 +775,12 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: func() *apis.FieldError {
+			var errs *apis.FieldError
+			errs = errs.Also(apis.ErrMissingField("spec.triggers[0].interceptors[0].interceptor.webhook.objectRef.apiVersion"))
+			errs = errs.Also(apis.ErrMissingField("spec.triggers[0].interceptors[0].interceptor.webhook.objectRef.kind"))
+			return errs
+		}(),
 	}, {
 		name: "Valid EventListener with invalid TriggerBinding",
 		el: &triggersv1beta1.EventListener{
@@ -725,10 +791,11 @@ func TestEventListenerValidate_error(t *testing.T) {
 			Spec: triggersv1beta1.EventListenerSpec{
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Bindings: []*triggersv1beta1.EventListenerBinding{{Kind: "badBindingKind", Ref: "tb"}},
-					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String(""), APIVersion: "triggersv1beta1"},
+					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String("tt"), APIVersion: "v1beta1"},
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue("invalid kind", "spec.triggers[0].bindings[0].kind"),
 	}, {
 		name: "Interceptor Wrong APIVersion",
 		el: &triggersv1beta1.EventListener{
@@ -753,6 +820,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue("invalid apiVersion", "spec.triggers[0].interceptors[0].interceptor.webhook.objectRef.apiVersion"),
 	}, {
 		name: "Interceptor Wrong Kind",
 		el: &triggersv1beta1.EventListener{
@@ -777,6 +845,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue("invalid kind", "spec.triggers[0].interceptors[0].interceptor.webhook.objectRef.kind"),
 	}, {
 		name: "Interceptor Non-Canonical Header",
 		el: &triggersv1beta1.EventListener{
@@ -808,6 +877,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue("invalid header name", "spec.triggers[0].interceptors[0].interceptor.webhook.header[0].name"),
 	}, {
 		name: "Interceptor Empty Header Name",
 		el: &triggersv1beta1.EventListener{
@@ -839,6 +909,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue("invalid header name", "spec.triggers[0].interceptors[0].interceptor.webhook.header[0].name"),
 	}, {
 		name: "Interceptor Empty Header Value",
 		el: &triggersv1beta1.EventListener{
@@ -870,6 +941,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue("invalid header value", "spec.triggers[0].interceptors[0].interceptor.webhook.header[0].value"),
 	}, {
 		name: "Triggers name has invalid label characters",
 		el: &triggersv1beta1.EventListener{
@@ -881,10 +953,11 @@ func TestEventListenerValidate_error(t *testing.T) {
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Bindings: []*triggersv1beta1.EventListenerBinding{{Kind: triggersv1beta1.NamespacedTriggerBindingKind, Ref: "tb"}},
 					Name:     "github.com/tektoncd/triggers",
-					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String(""), APIVersion: "triggersv1beta1"},
+					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String("tt"), APIVersion: "v1beta1"},
 				}},
 			},
 		},
+		wantErr: apis.ErrInvalidValue(`trigger name 'github.com/tektoncd/triggers' must be a valid label value`, "spec.triggers[0].name"),
 	}, {
 		name: "Triggers name is longer than the allowable label value (63 characters)",
 		el: &triggersv1beta1.EventListener{
@@ -896,30 +969,11 @@ func TestEventListenerValidate_error(t *testing.T) {
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Bindings: []*triggersv1beta1.EventListenerBinding{{Kind: triggersv1beta1.NamespacedTriggerBindingKind, Ref: "tb"}},
 					Name:     "1234567890123456789012345678901234567890123456789012345678901234",
-					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String(""), APIVersion: "triggersv1beta1"},
+					Template: &triggersv1beta1.EventListenerTemplate{Ref: ptr.String("tt"), APIVersion: "v1beta1"},
 				}},
 			},
 		},
-	}, {
-		name: "user specify invalid deprecated replicas",
-		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
-			Spec: triggersv1beta1.EventListenerSpec{
-				Triggers: []triggersv1beta1.EventListenerTrigger{{
-					Template: &triggersv1beta1.EventListenerTemplate{
-						Ref: ptr.String("tt"),
-					},
-				}},
-				Resources: triggersv1beta1.Resources{
-					KubernetesResource: &triggersv1beta1.KubernetesResource{
-						Replicas: ptr.Int32(-1),
-					},
-				},
-			},
-		},
+		wantErr: apis.ErrInvalidValue(`trigger name '1234567890123456789012345678901234567890123456789012345678901234' must be a valid label value`, "spec.triggers[0].name"),
 	}, {
 		name: "user specify invalid replicas",
 		el: &triggersv1beta1.EventListener{
@@ -940,6 +994,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				},
 			},
 		},
+		wantErr: apis.ErrInvalidValue(-1, "spec.resources.kubernetesResource.spec.replicas"),
 	}, {
 		name: "user specify multiple containers",
 		el: &triggersv1beta1.EventListener{
@@ -970,6 +1025,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrMultipleOneOf("spec.resources.kubernetesResource.spec.template.spec.containers"),
 	}, {
 		name: "user specifies an unsupported podspec field",
 		el: &triggersv1beta1.EventListener{
@@ -996,6 +1052,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrDisallowedFields("spec.resources.kubernetesResource.spec.template.spec.nodeName"),
 	}, {
 		name: "user specifies an unsupported container fields",
 		el: &triggersv1beta1.EventListener{
@@ -1035,6 +1092,13 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: func() *apis.FieldError {
+			var errs *apis.FieldError
+			errs = errs.Also(apis.ErrDisallowedFields("spec.resources.kubernetesResource.spec.template.spec.containers[0].env[0].value"))
+			errs = errs.Also(apis.ErrDisallowedFields("spec.resources.kubernetesResource.spec.template.spec.containers[0].env[1].valueFrom.configMapKeyRef"))
+			errs = errs.Also(apis.ErrDisallowedFields("spec.resources.kubernetesResource.spec.template.spec.containers[0].name"))
+			return errs
+		}(),
 	}, {
 		name: "user specifies an invalid env for TLS connection",
 		el: &triggersv1beta1.EventListener{
@@ -1073,6 +1137,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				}},
 			},
 		},
+		wantErr: apis.ErrGeneric("Expected env's are TLS_CERT and TLS_KEY, but got only one env TLS_CERT"),
 	}, {
 		name: "user specify both kubernetes and custom resources",
 		el: &triggersv1beta1.EventListener{
@@ -1098,6 +1163,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 				},
 			},
 		},
+		wantErr: apis.ErrMultipleOneOf("spec.resources.customResource", "spec.resources.kubernetesResource"),
 	}, {
 		name: "user specify multiple containers, unsupported podspec and container field in custom resources",
 		el: &triggersv1beta1.EventListener{
@@ -1110,7 +1176,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 					Bindings: []*triggersv1beta1.EventListenerBinding{{
 						Ref:        "tb",
 						Kind:       "TriggerBinding",
-						APIVersion: "triggersv1beta1",
+						APIVersion: "v1beta1",
 					}},
 				}},
 				Resources: triggersv1beta1.Resources{
@@ -1120,6 +1186,13 @@ func TestEventListenerValidate_error(t *testing.T) {
 				},
 			},
 		},
+		wantErr: func() *apis.FieldError {
+			var errs *apis.FieldError
+			errs = errs.Also(apis.ErrMultipleOneOf("spec.resources.customResource.spec.template.spec.containers"))
+			errs = errs.Also(apis.ErrMissingOneOf("spec.triggers[0].template", "spec.triggers[0].triggerRef"))
+			errs = errs.Also(apis.ErrDisallowedFields("spec.resources.customResource.spec.template.spec.nodeName"))
+			return errs
+		}(),
 	}, {
 		name: "specify TriggerTemplate along with TriggerRef",
 		el: &triggersv1beta1.EventListener{
@@ -1141,12 +1214,105 @@ func TestEventListenerValidate_error(t *testing.T) {
 				},
 			},
 		},
-	}}
+		wantErr: apis.ErrMultipleOneOf("spec.triggers[0].template or bindings or interceptors", "spec.triggers[0].triggerRef"),
+	}, {
+		name: "triggerGroups is not allowed if alpha fields are not enabled",
+		ctx:  context.Background(), // By default, enable-api-felds is set to stable, not alpha
+		el: &triggersv1beta1.EventListener{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "name",
+				Namespace: "namespace",
+			},
+			Spec: triggersv1beta1.EventListenerSpec{
+				TriggerGroups: []triggersv1beta1.EventListenerTriggerGroup{{
+					Name: "my-group",
+					TriggerSelector: triggersv1beta1.EventListenerTriggerSelector{
+						NamespaceSelector: triggersv1beta1.NamespaceSelector{
+							MatchNames: []string{"default"},
+						},
+					},
+					Interceptors: []*triggersv1beta1.TriggerInterceptor{{
+						Ref: triggersv1beta1.InterceptorRef{
+							Name: "cel",
+						},
+						Params: []triggersv1beta1.InterceptorParams{{
+							Name:  "filter",
+							Value: test.ToV1JSON(t, "has(body.repository)"),
+						}},
+					}},
+				}},
+			},
+		},
+		wantErr: apis.ErrGeneric("spec.triggerGroups requires \"enable-api-fields\" feature gate to be \"alpha\" but it is \"stable\""),
+	},
+		{
+			name: "missing label and namespace selector",
+			ctx:  ctxWithAlphaFieldsEnabled,
+			el: &triggersv1beta1.EventListener{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "namespace",
+				},
+				Spec: triggersv1beta1.EventListenerSpec{
+					TriggerGroups: []triggersv1beta1.EventListenerTriggerGroup{{
+						Name: "my-group",
+						Interceptors: []*triggersv1beta1.TriggerInterceptor{{
+							Ref: triggersv1beta1.InterceptorRef{
+								Name: "cel",
+							},
+							Params: []triggersv1beta1.InterceptorParams{{
+								Name:  "filter",
+								Value: test.ToV1JSON(t, "has(body.repository)"),
+							}},
+						}},
+					}},
+				},
+			},
+			wantErr: apis.ErrMissingOneOf("spec.triggerGroups[0].triggerSelector.labelSelector", "spec.triggerGroups[0].triggerSelector.namespaceSelector"),
+		}, {
+			name: "triggerGroup requires interceptor",
+			ctx:  ctxWithAlphaFieldsEnabled,
+			el: &triggersv1beta1.EventListener{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "namespace",
+				},
+				Spec: triggersv1beta1.EventListenerSpec{
+					TriggerGroups: []triggersv1beta1.EventListenerTriggerGroup{{
+						Name: "my-group",
+						TriggerSelector: triggersv1beta1.EventListenerTriggerSelector{
+							LabelSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"foo": "bar",
+								},
+							},
+						},
+					}},
+				},
+			},
+			wantErr: apis.ErrMissingField("spec.triggerGroups[0].interceptors"),
+		}, {
+			name: "empty spec for eventlistener",
+			ctx:  ctxWithAlphaFieldsEnabled,
+			el: &triggersv1beta1.EventListener{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "namespace",
+				},
+			},
+			wantErr: apis.ErrMissingOneOf("spec.labelSelector", "spec.namespaceSelector", "spec.triggerGroups", "spec.triggers"),
+		}}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := tc.el.Validate(context.Background()); err == nil {
-				t.Errorf("EventListener.Validate() expected error, but get none, EventListener: %v", tc.el)
+			ctx := tc.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			got := tc.el.Validate(ctx)
+
+			if diff := cmp.Diff(tc.wantErr.Error(), got.Error()); diff != "" {
+				t.Error("EventListener.Validate() (-want, +got) =", diff)
 			}
 		})
 	}
