@@ -18,10 +18,11 @@ package v1alpha1_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
-	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
+	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"github.com/tektoncd/triggers/pkg/apis/triggers"
 	"github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 	"github.com/tektoncd/triggers/test"
@@ -37,7 +38,7 @@ import (
 func Test_EventListenerValidate_OnDelete(t *testing.T) {
 	el := &v1alpha1.EventListener{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "name",
+			Name:      strings.Repeat("foo", 64), // Length should be lower than 63
 			Namespace: "namespace",
 		},
 		Spec: v1alpha1.EventListenerSpec{
@@ -228,13 +229,13 @@ func Test_EventListenerValidate(t *testing.T) {
 						Webhook: &v1alpha1.WebhookInterceptor{
 							Header: []pipelinev1.Param{{
 								Name: "Valid-Header-Key",
-								Value: pipelinev1.ArrayOrString{
+								Value: pipelinev1.ParamValue{
 									Type:      pipelinev1.ParamTypeString,
 									StringVal: "valid-value",
 								},
 							}, {
 								Name: "Valid-Header-Key2",
-								Value: pipelinev1.ArrayOrString{
+								Value: pipelinev1.ParamValue{
 									Type:      pipelinev1.ParamTypeString,
 									StringVal: "valid value 2",
 								},
@@ -518,7 +519,7 @@ func Test_EventListenerValidate(t *testing.T) {
 							ResourceTemplates: []v1alpha1.TriggerResourceTemplate{{
 								RawExtension: test.RawExtension(t, pipelinev1.PipelineRun{
 									TypeMeta: metav1.TypeMeta{
-										APIVersion: "tekton.dev/v1alpha1",
+										APIVersion: "tekton.dev/v1beta1",
 										Kind:       "TaskRun",
 									},
 									ObjectMeta: metav1.ObjectMeta{
@@ -797,7 +798,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 						Webhook: &v1alpha1.WebhookInterceptor{
 							Header: []v1beta1.Param{{
 								Name: "non-canonical-header-key",
-								Value: v1beta1.ArrayOrString{
+								Value: v1beta1.ParamValue{
 									Type:      v1beta1.ParamTypeString,
 									StringVal: "valid value",
 								},
@@ -828,7 +829,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 						Webhook: &v1alpha1.WebhookInterceptor{
 							Header: []v1beta1.Param{{
 								Name: "",
-								Value: v1beta1.ArrayOrString{
+								Value: v1beta1.ParamValue{
 									Type:      v1beta1.ParamTypeString,
 									StringVal: "valid value",
 								},
@@ -859,7 +860,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 						Webhook: &v1alpha1.WebhookInterceptor{
 							Header: []v1beta1.Param{{
 								Name: "Valid-Header-Key",
-								Value: v1beta1.ArrayOrString{
+								Value: v1beta1.ParamValue{
 									Type:      v1beta1.ParamTypeString,
 									StringVal: "",
 								},
@@ -1207,6 +1208,28 @@ func TestEventListenerValidate_error(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "name",
 				Namespace: "namespace",
+			},
+		},
+	}, {
+		name: "invalid interceptor for eventlistener",
+		el: &v1alpha1.EventListener{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "name",
+				Namespace: "namespace",
+			},
+			Spec: v1alpha1.EventListenerSpec{
+				Triggers: []v1alpha1.EventListenerTrigger{{
+					Name: "test",
+					Interceptors: []*v1alpha1.EventInterceptor{{
+						Ref: v1alpha1.InterceptorRef{
+							Name:       "cel",
+							Kind:       v1alpha1.ClusterInterceptorKind,
+							APIVersion: "triggers.tekton.dev/v1alpha1",
+						},
+					},
+						nil,
+					},
+				}},
 			},
 		},
 	}}

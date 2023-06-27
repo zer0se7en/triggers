@@ -59,6 +59,8 @@ func MakeDeployment(ctx context.Context, el *v1beta1.EventListener, configAcc re
 		vol                       []corev1.Volume
 		tolerations               []corev1.Toleration
 		nodeSelector, annotations map[string]string
+		affinity                  *corev1.Affinity
+		topologySpreadConstraints []corev1.TopologySpreadConstraint
 	)
 
 	for _, v := range container.Env {
@@ -88,6 +90,12 @@ func MakeDeployment(ctx context.Context, el *v1beta1.EventListener, configAcc re
 		if el.Spec.Resources.KubernetesResource.Template.Spec.ServiceAccountName != "" {
 			serviceAccountName = el.Spec.Resources.KubernetesResource.Template.Spec.ServiceAccountName
 		}
+		if el.Spec.Resources.KubernetesResource.Template.Spec.Affinity != nil {
+			affinity = el.Spec.Resources.KubernetesResource.Template.Spec.Affinity
+		}
+		if len(el.Spec.Resources.KubernetesResource.Template.Spec.TopologySpreadConstraints) != 0 {
+			topologySpreadConstraints = el.Spec.Resources.KubernetesResource.Template.Spec.TopologySpreadConstraints
+		}
 		annotations = el.Spec.Resources.KubernetesResource.Template.Annotations
 		podlabels = kmeta.UnionMaps(podlabels, el.Spec.Resources.KubernetesResource.Template.Labels)
 	}
@@ -110,17 +118,21 @@ func MakeDeployment(ctx context.Context, el *v1beta1.EventListener, configAcc re
 					Annotations: annotations,
 				},
 				Spec: corev1.PodSpec{
-					Tolerations:        tolerations,
-					NodeSelector:       nodeSelector,
-					ServiceAccountName: serviceAccountName,
-					Containers:         []corev1.Container{container},
-					Volumes:            vol,
-					SecurityContext:    &securityContext,
+					Tolerations:               tolerations,
+					NodeSelector:              nodeSelector,
+					ServiceAccountName:        serviceAccountName,
+					Containers:                []corev1.Container{container},
+					Volumes:                   vol,
+					SecurityContext:           &securityContext,
+					Affinity:                  affinity,
+					TopologySpreadConstraints: topologySpreadConstraints,
 				},
 			},
 		},
 	}, nil
 }
+
+// revive:disable:unused-parameter
 
 func addDeploymentBits(el *v1beta1.EventListener, c Config) (ContainerOption, error) {
 	// METRICS_PROMETHEUS_PORT defines the port exposed by the EventListener metrics endpoint
@@ -189,7 +201,7 @@ func addCertsForSecureConnection(c Config) ContainerOption {
 			scheme = corev1.URISchemeHTTP
 		}
 		container.LivenessProbe = &corev1.Probe{
-			Handler: corev1.Handler{
+			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path:   "/live",
 					Scheme: scheme,
@@ -200,7 +212,7 @@ func addCertsForSecureConnection(c Config) ContainerOption {
 			FailureThreshold: int32(*c.FailureThreshold),
 		}
 		container.ReadinessProbe = &corev1.Probe{
-			Handler: corev1.Handler{
+			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path:   "/live",
 					Scheme: scheme,

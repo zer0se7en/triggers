@@ -12,8 +12,32 @@ To run the examples, you need the following pre-requisites:
 
 1. Ensure you have Tekton Pipelines [installed](https://github.com/tektoncd/pipeline/blob/master/docs/install.md)
 
-2. Create the service account and all associated roles and bindings by running `kubectl apply -f rbac.yaml`
+2. Create the service account and all associated roles and bindings by running `kubectl apply -f rbac.yaml`.
 
+**Note**: `rbac.yaml` assumes that examples are running in the default namespace. If you would like to run examples
+in a different namespace, edit the `triggers-example-eventlistener-clusterbinding` ClusterRoleBinding to refer to
+the namespace where you've deployed the service account, for example:
+
+```yaml
+subjects:
+- kind: ServiceAccount
+  name: tekton-triggers-example-sa
+  namespace: my-favorite-namespace
+```
+
+3. Apply the `git-clone` task from the Tekton catalog to the cluster
+
+This can be done either via kubectl:
+
+```
+kubectl apply -n my-favorite-namespace -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-clone/0.8/git-clone.yaml
+```
+
+or via the `tkn` CLI:
+
+```
+tkn hub install task git-clone -n my-favorite-namespace
+```
 
 ## Creating Triggers Resources
 

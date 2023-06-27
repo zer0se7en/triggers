@@ -42,6 +42,7 @@ import (
 var types = map[schema.GroupVersionKind]resourcesemantics.GenericCRD{
 	v1alpha1.SchemeGroupVersion.WithKind("ClusterTriggerBinding"): &v1alpha1.ClusterTriggerBinding{},
 	v1alpha1.SchemeGroupVersion.WithKind("ClusterInterceptor"):    &v1alpha1.ClusterInterceptor{},
+	v1alpha1.SchemeGroupVersion.WithKind("Interceptor"):           &v1alpha1.Interceptor{},
 	v1alpha1.SchemeGroupVersion.WithKind("EventListener"):         &v1alpha1.EventListener{},
 	v1alpha1.SchemeGroupVersion.WithKind("TriggerBinding"):        &v1alpha1.TriggerBinding{},
 	v1alpha1.SchemeGroupVersion.WithKind("TriggerTemplate"):       &v1alpha1.TriggerTemplate{},
@@ -104,6 +105,8 @@ func NewValidationAdmissionController(ctx context.Context, cmw configmap.Watcher
 	)
 }
 
+// revive:disable:unused-parameter
+
 func NewConfigValidationController(ctx context.Context, cmw configmap.Watcher) *controller.Impl {
 	return configmaps.NewAdmissionController(ctx,
 
@@ -134,7 +137,7 @@ func main() {
 	// Set up a signal context with our webhook options
 	ctx := webhook.WithOptions(signals.NewContext(), webhook.Options{
 		ServiceName: serviceName,
-		Port:        8443,
+		Port:        webhook.PortFromEnv(8443),
 		SecretName:  secretName,
 	})
 

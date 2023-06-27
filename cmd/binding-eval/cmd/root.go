@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -53,6 +52,8 @@ func init() {
 	}
 }
 
+// revive:disable:unused-parameter
+
 func rootRun(cmd *cobra.Command, args []string) {
 	if err := evalBinding(os.Stdout, bindingPath, httpPath); err != nil {
 		log.Fatal(err)
@@ -80,7 +81,7 @@ func evalBinding(w io.Writer, bindingPath, httpPath string) error {
 		BindingParams: bindingParams,
 	}
 
-	params, err := template.ResolveParams(t, body, r.Header, map[string]interface{}{})
+	params, err := template.ResolveParams(t, body, r.Header, map[string]interface{}{}, template.NewTriggerContext(""))
 	if err != nil {
 		return fmt.Errorf("error resolving params: %w", err)
 	}
@@ -138,7 +139,7 @@ func readHTTP(path string) (*http.Request, []byte, error) {
 		return nil, nil, fmt.Errorf("error reading request: %w", err)
 	}
 	defer req.Body.Close()
-	body, err := ioutil.ReadAll(req.Body)
+	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error reading HTTP body: %w", err)
 	}

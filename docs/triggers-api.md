@@ -1,3 +1,11 @@
+<!--
+---
+title: Triggers API
+linkTitle: Triggers API
+weight: 1000
+---
+-->
+
 <p>Packages:</p>
 <ul>
 <li>
@@ -592,7 +600,7 @@ string
 <h3 id="triggers.tekton.dev/v1alpha1.ClientConfig">ClientConfig
 </h3>
 <p>
-(<em>Appears on:</em><a href="#triggers.tekton.dev/v1alpha1.ClusterInterceptorSpec">ClusterInterceptorSpec</a>)
+(<em>Appears on:</em><a href="#triggers.tekton.dev/v1alpha1.ClusterInterceptorSpec">ClusterInterceptorSpec</a>, <a href="#triggers.tekton.dev/v1alpha1.InterceptorSpec">InterceptorSpec</a>)
 </p>
 <div>
 <p>ClientConfig describes how a client can communicate with the Interceptor</p>
@@ -605,6 +613,17 @@ string
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>
+<code>caBundle</code><br/>
+<em>
+[]byte
+</em>
+</td>
+<td>
+<p>CaBundle is a PEM encoded CA bundle which will be used to validate the clusterinterceptor server certificate</p>
+</td>
+</tr>
 <tr>
 <td>
 <code>url</code><br/>
@@ -1163,6 +1182,79 @@ SecretRef
 </tr>
 </tbody>
 </table>
+<h3 id="triggers.tekton.dev/v1alpha1.Interceptor">Interceptor
+</h3>
+<div>
+<p>Interceptor describes a pluggable interceptor including configuration
+such as the fields it accepts and its deployment address. The type is based on
+the Validating/MutatingWebhookConfiguration types for configuring AdmissionWebhooks</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>metadata</code><br/>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.22/#objectmeta-v1-meta">
+Kubernetes meta/v1.ObjectMeta
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+Refer to the Kubernetes API documentation for the fields of the
+<code>metadata</code> field.
+</td>
+</tr>
+<tr>
+<td>
+<code>spec</code><br/>
+<em>
+<a href="#triggers.tekton.dev/v1alpha1.InterceptorSpec">
+InterceptorSpec
+</a>
+</em>
+</td>
+<td>
+<br/>
+<br/>
+<table>
+<tr>
+<td>
+<code>clientConfig</code><br/>
+<em>
+<a href="#triggers.tekton.dev/v1alpha1.ClientConfig">
+ClientConfig
+</a>
+</em>
+</td>
+<td>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td>
+<code>status</code><br/>
+<em>
+<a href="#triggers.tekton.dev/v1alpha1.InterceptorStatus">
+InterceptorStatus
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+</td>
+</tr>
+</tbody>
+</table>
 <h3 id="triggers.tekton.dev/v1alpha1.InterceptorInterface">InterceptorInterface
 </h3>
 <div>
@@ -1183,7 +1275,10 @@ SecretRef
 </tr>
 </thead>
 <tbody><tr><td><p>&#34;ClusterInterceptor&#34;</p></td>
-<td><p>ClusterTaskKind indicates that task type has a cluster scope.</p>
+<td><p>ClusterInterceptorKind indicates that Interceptor type has a cluster scope.</p>
+</td>
+</tr><tr><td><p>&#34;NamespacedInterceptor&#34;</p></td>
+<td><p>NamespacedInterceptorKind indicated that interceptor has a namespaced scope</p>
 </td>
 </tr></tbody>
 </table>
@@ -1263,9 +1358,7 @@ InterceptorKind
 </td>
 <td>
 <em>(Optional)</em>
-<p>InterceptorKind indicates the kind of the Interceptor, namespaced or cluster scoped.
-Currently only InterceptorKind is ClusterInterceptor, so the only valid value
-is the default one</p>
+<p>InterceptorKind indicates the kind of the Interceptor, namespaced or cluster scoped.</p>
 </td>
 </tr>
 <tr>
@@ -1404,6 +1497,85 @@ Status
 </td>
 <td>
 <p>Status is an Error status containing details on any interceptor processing errors</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="triggers.tekton.dev/v1alpha1.InterceptorSpec">InterceptorSpec
+</h3>
+<p>
+(<em>Appears on:</em><a href="#triggers.tekton.dev/v1alpha1.Interceptor">Interceptor</a>)
+</p>
+<div>
+<p>InterceptorSpec describes the Spec for an Interceptor</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>clientConfig</code><br/>
+<em>
+<a href="#triggers.tekton.dev/v1alpha1.ClientConfig">
+ClientConfig
+</a>
+</em>
+</td>
+<td>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="triggers.tekton.dev/v1alpha1.InterceptorStatus">InterceptorStatus
+</h3>
+<p>
+(<em>Appears on:</em><a href="#triggers.tekton.dev/v1alpha1.Interceptor">Interceptor</a>)
+</p>
+<div>
+<p>InterceptorStatus holds the status of the Interceptor</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>Status</code><br/>
+<em>
+<a href="https://pkg.go.dev/knative.dev/pkg/apis/duck/v1#Status">
+knative.dev/pkg/apis/duck/v1.Status
+</a>
+</em>
+</td>
+<td>
+<p>
+(Members of <code>Status</code> are embedded into this type.)
+</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>AddressStatus</code><br/>
+<em>
+<a href="https://pkg.go.dev/knative.dev/pkg/apis/duck/v1#AddressStatus">
+knative.dev/pkg/apis/duck/v1.AddressStatus
+</a>
+</em>
+</td>
+<td>
+<p>
+(Members of <code>AddressStatus</code> are embedded into this type.)
+</p>
+<p>Interceptor is Addressable and exposes the URL where the Interceptor is running</p>
 </td>
 </tr>
 </tbody>
@@ -2723,6 +2895,16 @@ Resources
 <td>
 </td>
 </tr>
+<tr>
+<td>
+<code>cloudEventURI</code><br/>
+<em>
+string
+</em>
+</td>
+<td>
+</td>
+</tr>
 </table>
 </td>
 </tr>
@@ -2962,118 +3144,6 @@ TriggerBindingStatus
 </tr>
 </tbody>
 </table>
-<h3 id="triggers.tekton.dev/v1beta1.BitbucketInterceptor">BitbucketInterceptor
-</h3>
-<div>
-<p>BitbucketInterceptor provides a webhook to intercept and pre-process events</p>
-</div>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>
-<code>secretRef</code><br/>
-<em>
-<a href="#triggers.tekton.dev/v1beta1.SecretRef">
-SecretRef
-</a>
-</em>
-</td>
-<td>
-</td>
-</tr>
-<tr>
-<td>
-<code>eventTypes</code><br/>
-<em>
-[]string
-</em>
-</td>
-<td>
-</td>
-</tr>
-</tbody>
-</table>
-<h3 id="triggers.tekton.dev/v1beta1.CELInterceptor">CELInterceptor
-</h3>
-<div>
-<p>CELInterceptor provides a webhook to intercept and pre-process events</p>
-</div>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>
-<code>filter</code><br/>
-<em>
-string
-</em>
-</td>
-<td>
-</td>
-</tr>
-<tr>
-<td>
-<code>overlays</code><br/>
-<em>
-<a href="#triggers.tekton.dev/v1beta1.CELOverlay">
-[]CELOverlay
-</a>
-</em>
-</td>
-<td>
-</td>
-</tr>
-</tbody>
-</table>
-<h3 id="triggers.tekton.dev/v1beta1.CELOverlay">CELOverlay
-</h3>
-<p>
-(<em>Appears on:</em><a href="#triggers.tekton.dev/v1beta1.CELInterceptor">CELInterceptor</a>)
-</p>
-<div>
-<p>CELOverlay provides a way to modify the request body using CEL expressions</p>
-</div>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>
-<code>key</code><br/>
-<em>
-string
-</em>
-</td>
-<td>
-</td>
-</tr>
-<tr>
-<td>
-<code>expression</code><br/>
-<em>
-string
-</em>
-</td>
-<td>
-</td>
-</tr>
-</tbody>
-</table>
 <h3 id="triggers.tekton.dev/v1beta1.CustomResource">CustomResource
 </h3>
 <p>
@@ -3218,6 +3288,16 @@ Kubernetes meta/v1.LabelSelector
 <a href="#triggers.tekton.dev/v1beta1.Resources">
 Resources
 </a>
+</em>
+</td>
+<td>
+</td>
+</tr>
+<tr>
+<td>
+<code>cloudEventURI</code><br/>
+<em>
+string
 </em>
 </td>
 <td>
@@ -3477,80 +3557,6 @@ Kubernetes meta/v1.LabelSelector
 </tr>
 </tbody>
 </table>
-<h3 id="triggers.tekton.dev/v1beta1.GitHubInterceptor">GitHubInterceptor
-</h3>
-<div>
-<p>GitHubInterceptor provides a webhook to intercept and pre-process events</p>
-</div>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>
-<code>secretRef</code><br/>
-<em>
-<a href="#triggers.tekton.dev/v1beta1.SecretRef">
-SecretRef
-</a>
-</em>
-</td>
-<td>
-</td>
-</tr>
-<tr>
-<td>
-<code>eventTypes</code><br/>
-<em>
-[]string
-</em>
-</td>
-<td>
-</td>
-</tr>
-</tbody>
-</table>
-<h3 id="triggers.tekton.dev/v1beta1.GitLabInterceptor">GitLabInterceptor
-</h3>
-<div>
-<p>GitLabInterceptor provides a webhook to intercept and pre-process events</p>
-</div>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>
-<code>secretRef</code><br/>
-<em>
-<a href="#triggers.tekton.dev/v1beta1.SecretRef">
-SecretRef
-</a>
-</em>
-</td>
-<td>
-</td>
-</tr>
-<tr>
-<td>
-<code>eventTypes</code><br/>
-<em>
-[]string
-</em>
-</td>
-<td>
-</td>
-</tr>
-</tbody>
-</table>
 <h3 id="triggers.tekton.dev/v1beta1.InterceptorInterface">InterceptorInterface
 </h3>
 <div>
@@ -3571,7 +3577,10 @@ SecretRef
 </tr>
 </thead>
 <tbody><tr><td><p>&#34;ClusterInterceptor&#34;</p></td>
-<td><p>ClusterTaskKind indicates that task type has a cluster scope.</p>
+<td><p>ClusterInterceptorKind indicates that Interceptor type has a cluster scope.</p>
+</td>
+</tr><tr><td><p>&#34;NamespacedInterceptor&#34;</p></td>
+<td><p>NamespacedInterceptorKind indicates that Interceptor type has a namespace scope.</p>
 </td>
 </tr></tbody>
 </table>
@@ -3651,9 +3660,7 @@ InterceptorKind
 </td>
 <td>
 <em>(Optional)</em>
-<p>InterceptorKind indicates the kind of the Interceptor, namespaced or cluster scoped.
-Currently only InterceptorKind is ClusterInterceptor, so the only valid value
-is the default one</p>
+<p>InterceptorKind indicates the kind of the Interceptor, namespaced or cluster scoped.</p>
 </td>
 </tr>
 <tr>
@@ -3996,48 +4003,6 @@ string
 </tr>
 </tbody>
 </table>
-<h3 id="triggers.tekton.dev/v1beta1.PodTemplate">PodTemplate
-</h3>
-<div>
-</div>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>
-<code>tolerations</code><br/>
-<em>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.22/#toleration-v1-core">
-[]Kubernetes core/v1.Toleration
-</a>
-</em>
-</td>
-<td>
-<em>(Optional)</em>
-<p>If specified, the pod&rsquo;s tolerations.</p>
-</td>
-</tr>
-<tr>
-<td>
-<code>nodeSelector</code><br/>
-<em>
-map[string]string
-</em>
-</td>
-<td>
-<em>(Optional)</em>
-<p>NodeSelector is a selector which must be true for the pod to fit on a node.
-Selector which must match a node&rsquo;s labels for the pod to be scheduled on that node.
-More info: <a href="https://kubernetes.io/docs/concepts/configuration/assign-pod-node/">https://kubernetes.io/docs/concepts/configuration/assign-pod-node/</a></p>
-</td>
-</tr>
-</tbody>
-</table>
 <h3 id="triggers.tekton.dev/v1beta1.Resources">Resources
 </h3>
 <p>
@@ -4081,9 +4046,6 @@ CustomResource
 </table>
 <h3 id="triggers.tekton.dev/v1beta1.SecretRef">SecretRef
 </h3>
-<p>
-(<em>Appears on:</em><a href="#triggers.tekton.dev/v1beta1.BitbucketInterceptor">BitbucketInterceptor</a>, <a href="#triggers.tekton.dev/v1beta1.GitHubInterceptor">GitHubInterceptor</a>, <a href="#triggers.tekton.dev/v1beta1.GitLabInterceptor">GitLabInterceptor</a>)
-</p>
 <div>
 <p>SecretRef contains the information required to reference a single secret string
 This is needed because the other secretRef types are not cross-namespace and do not

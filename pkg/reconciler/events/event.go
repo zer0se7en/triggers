@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,6 +28,11 @@ const (
 	TriggerProcessingSuccessfulV1 = "dev.tekton.event.triggers.successful.v1"
 	// TriggerProcessingFailedEventV1 is sent for Sink Triggers when we fail to process trigger
 	TriggerProcessingFailedV1 = "dev.tekton.event.triggers.failed.v1"
+	// TriggerProcessingDoneV1 is sent for Sink Triggers when we are done
+	// with eventlistener handler
+	TriggerProcessingDoneV1 = "dev.tekton.event.triggers.done.v1"
+	// EventAccepted is sent as response for CloudEvent compliant providers
+	EventAccepted = "dev.tekton.event.triggers.accepted.v1"
 )
 
 // Emit emits events for object

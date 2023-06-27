@@ -27,8 +27,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	pipelinev1alpha1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
+	pipelinev1beta1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	triggersv1 "github.com/tektoncd/triggers/pkg/apis/triggers/v1beta1"
 	triggersclientset "github.com/tektoncd/triggers/pkg/client/clientset/versioned"
 	"github.com/tektoncd/triggers/pkg/sink"
@@ -123,11 +123,11 @@ func Test_processTriggerSpec(t *testing.T) {
 		resources test.Resources
 	}
 	eventBody := json.RawMessage(`{"repository": {"links": {"clone": [{"href": "testurl", "name": "ssh"}, {"href": "testurl", "name": "http"}]}}, "changes": [{"ref": {"displayId": "test-branch"}}]}`)
-	r, err := http.NewRequest("POST", "URL", bytes.NewReader(eventBody))
+	r, err := http.NewRequest(http.MethodPost, "URL", bytes.NewReader(eventBody))
 	if err != nil {
 		t.Errorf("Cannot create a new request:%s", err)
 	}
-	taskRunTemplate := pipelinev1alpha1.TaskRun{
+	taskRunTemplate := pipelinev1beta1.TaskRun{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "tekton.dev/v1alpha1",
 			Kind:       "TaskRun",
@@ -139,7 +139,7 @@ func Test_processTriggerSpec(t *testing.T) {
 				"someLabel": "$(tt.params.foo)",
 			},
 		},
-		Spec: pipelinev1alpha1.TaskRunSpec{
+		Spec: pipelinev1beta1.TaskRunSpec{
 			TaskRef: &v1beta1.TaskRef{
 				Name: "my-task", // non-existent task; just for testing
 			},
@@ -178,7 +178,7 @@ func Test_processTriggerSpec(t *testing.T) {
 		},
 	}
 
-	wantTaskRun := pipelinev1alpha1.TaskRun{
+	wantTaskRun := pipelinev1beta1.TaskRun{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "tekton.dev/v1alpha1",
 			Kind:       "TaskRun",
@@ -190,7 +190,7 @@ func Test_processTriggerSpec(t *testing.T) {
 				"someLabel": "bar", // replaced with the value of foo from bar
 			},
 		},
-		Spec: pipelinev1alpha1.TaskRunSpec{
+		Spec: pipelinev1beta1.TaskRunSpec{
 			TaskRef: taskRunTemplate.Spec.TaskRef, // non-existent task; just for testing
 		},
 	}

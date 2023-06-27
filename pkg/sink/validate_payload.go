@@ -20,14 +20,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 )
 
 func (r Sink) IsValidPayload(eventHandler http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		payload, err := ioutil.ReadAll(request.Body)
-		request.Body = ioutil.NopCloser(bytes.NewBuffer(payload))
+		payload, err := io.ReadAll(request.Body)
+		request.Body = io.NopCloser(bytes.NewBuffer(payload))
 		if err != nil {
 			r.recordCountMetrics(failTag)
 			r.Logger.Errorf("Error reading event body: %s", err)
@@ -36,8 +36,8 @@ func (r Sink) IsValidPayload(eventHandler http.Handler) http.Handler {
 		}
 		if r.PayloadValidation {
 			var event map[string]interface{}
-			if err := json.Unmarshal([]byte(payload), &event); err != nil {
-				errMsg := fmt.Sprintf("Invalid event body format format: %s", err)
+			if err := json.Unmarshal(payload, &event); err != nil {
+				errMsg := fmt.Sprintf("Invalid event body format : %s", err)
 				r.recordCountMetrics(failTag)
 				r.Logger.Error(errMsg)
 				response.WriteHeader(http.StatusBadRequest)

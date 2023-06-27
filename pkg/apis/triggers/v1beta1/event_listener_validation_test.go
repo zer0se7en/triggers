@@ -21,10 +21,10 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	pipelinev1alpha1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	pipelinev1beta1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"github.com/tektoncd/triggers/pkg/apis/triggers"
 	triggersv1beta1 "github.com/tektoncd/triggers/pkg/apis/triggers/v1beta1"
+	"github.com/tektoncd/triggers/pkg/interceptors/cel"
 	"github.com/tektoncd/triggers/test"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -38,26 +38,6 @@ import (
 var myObjectMeta = metav1.ObjectMeta{
 	Name:      "name",
 	Namespace: "namespace",
-}
-
-func Test_EventListenerValidate_OnDelete(t *testing.T) {
-	el := &triggersv1beta1.EventListener{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "name",
-			Namespace: "namespace",
-		},
-		Spec: triggersv1beta1.EventListenerSpec{
-			Triggers: []triggersv1beta1.EventListenerTrigger{{
-				Template: &triggersv1beta1.EventListenerTemplate{
-					Ref: ptr.String(""),
-				},
-			}},
-		},
-	}
-	err := el.Validate(apis.WithinDelete(context.Background()))
-	if err != nil {
-		t.Errorf("EventListener.Validate() on Delete expected no error, but got one, EventListener: %v, error: %v", el, err)
-	}
 }
 
 func Test_EventListenerValidate(t *testing.T) {
@@ -217,16 +197,16 @@ func Test_EventListenerValidate(t *testing.T) {
 				Triggers: []triggersv1beta1.EventListenerTrigger{{
 					Interceptors: []*triggersv1beta1.EventInterceptor{{
 						Webhook: &triggersv1beta1.WebhookInterceptor{
-							Header: []pipelinev1alpha1.Param{{
+							Header: []pipelinev1beta1.Param{{
 								Name: "Valid-Header-Key",
-								Value: pipelinev1alpha1.ArrayOrString{
-									Type:      pipelinev1alpha1.ParamTypeString,
+								Value: pipelinev1beta1.ParamValue{
+									Type:      pipelinev1beta1.ParamTypeString,
 									StringVal: "valid-value",
 								},
 							}, {
 								Name: "Valid-Header-Key2",
-								Value: pipelinev1alpha1.ArrayOrString{
-									Type:      pipelinev1alpha1.ParamTypeString,
+								Value: pipelinev1beta1.ParamValue{
+									Type:      pipelinev1beta1.ParamTypeString,
 									StringVal: "valid value 2",
 								},
 							}},
@@ -292,7 +272,7 @@ func Test_EventListenerValidate(t *testing.T) {
 							Value: test.ToV1JSON(t, "body.value == test"),
 						}, {
 							Name: "overlays",
-							Value: test.ToV1JSON(t, []triggersv1beta1.CELOverlay{{
+							Value: test.ToV1JSON(t, []cel.Overlay{{
 								Key:        "value",
 								Expression: "testing",
 							}}),
@@ -481,7 +461,7 @@ func Test_EventListenerValidate(t *testing.T) {
 								Default:     ptr.String("val"),
 							}},
 							ResourceTemplates: []triggersv1beta1.TriggerResourceTemplate{{
-								RawExtension: test.RawExtension(t, pipelinev1alpha1.PipelineRun{
+								RawExtension: test.RawExtension(t, pipelinev1beta1.PipelineRun{
 									TypeMeta: metav1.TypeMeta{
 										APIVersion: "tekton.dev/v1beta1",
 										Kind:       "TaskRun",
@@ -525,7 +505,44 @@ func Test_EventListenerValidate(t *testing.T) {
 					},
 				}},
 			},
-		}}}
+		}},
+		{
+			name: "Valid EventListener with node affinity",
+			el: &triggersv1beta1.EventListener{
+				ObjectMeta: myObjectMeta,
+				Spec: triggersv1beta1.EventListenerSpec{
+					Triggers: []triggersv1beta1.EventListenerTrigger{{
+						Template: &triggersv1beta1.EventListenerTemplate{
+							Ref: ptr.String("tt"),
+						},
+					}},
+					Resources: triggersv1beta1.Resources{
+						KubernetesResource: &triggersv1beta1.KubernetesResource{
+							WithPodSpec: duckv1.WithPodSpec{
+								Template: duckv1.PodSpecable{
+									Spec: corev1.PodSpec{
+										ServiceAccountName: "k8sresource",
+										Affinity: &corev1.Affinity{
+											NodeAffinity: &corev1.NodeAffinity{
+												RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+													NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+														MatchExpressions: []corev1.NodeSelectorRequirement{{
+															Key:      "topology.kubernetes.io/zone",
+															Operator: corev1.NodeSelectorOpIn,
+															Values:   []string{"antarctica-east1"},
+														}},
+													}},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -861,7 +878,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 						Webhook: &triggersv1beta1.WebhookInterceptor{
 							Header: []pipelinev1beta1.Param{{
 								Name: "non-canonical-header-key",
-								Value: pipelinev1beta1.ArrayOrString{
+								Value: pipelinev1beta1.ParamValue{
 									Type:      pipelinev1beta1.ParamTypeString,
 									StringVal: "valid value",
 								},
@@ -893,7 +910,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 						Webhook: &triggersv1beta1.WebhookInterceptor{
 							Header: []pipelinev1beta1.Param{{
 								Name: "",
-								Value: pipelinev1beta1.ArrayOrString{
+								Value: pipelinev1beta1.ParamValue{
 									Type:      pipelinev1beta1.ParamTypeString,
 									StringVal: "valid value",
 								},
@@ -925,7 +942,7 @@ func TestEventListenerValidate_error(t *testing.T) {
 						Webhook: &triggersv1beta1.WebhookInterceptor{
 							Header: []pipelinev1beta1.Param{{
 								Name: "Valid-Header-Key",
-								Value: pipelinev1beta1.ArrayOrString{
+								Value: pipelinev1beta1.ParamValue{
 									Type:      pipelinev1beta1.ParamTypeString,
 									StringVal: "",
 								},
@@ -1215,35 +1232,6 @@ func TestEventListenerValidate_error(t *testing.T) {
 			},
 		},
 		wantErr: apis.ErrMultipleOneOf("spec.triggers[0].template or bindings or interceptors", "spec.triggers[0].triggerRef"),
-	}, {
-		name: "triggerGroups is not allowed if alpha fields are not enabled",
-		ctx:  context.Background(), // By default, enable-api-felds is set to stable, not alpha
-		el: &triggersv1beta1.EventListener{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "name",
-				Namespace: "namespace",
-			},
-			Spec: triggersv1beta1.EventListenerSpec{
-				TriggerGroups: []triggersv1beta1.EventListenerTriggerGroup{{
-					Name: "my-group",
-					TriggerSelector: triggersv1beta1.EventListenerTriggerSelector{
-						NamespaceSelector: triggersv1beta1.NamespaceSelector{
-							MatchNames: []string{"default"},
-						},
-					},
-					Interceptors: []*triggersv1beta1.TriggerInterceptor{{
-						Ref: triggersv1beta1.InterceptorRef{
-							Name: "cel",
-						},
-						Params: []triggersv1beta1.InterceptorParams{{
-							Name:  "filter",
-							Value: test.ToV1JSON(t, "has(body.repository)"),
-						}},
-					}},
-				}},
-			},
-		},
-		wantErr: apis.ErrGeneric("spec.triggerGroups requires \"enable-api-fields\" feature gate to be \"alpha\" but it is \"stable\""),
 	},
 		{
 			name: "missing label and namespace selector",
@@ -1301,6 +1289,33 @@ func TestEventListenerValidate_error(t *testing.T) {
 				},
 			},
 			wantErr: apis.ErrMissingOneOf("spec.labelSelector", "spec.namespaceSelector", "spec.triggerGroups", "spec.triggers"),
+		}, {
+			name: "invalid interceptor for eventlistener",
+			el: &triggersv1beta1.EventListener{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "namespace",
+				},
+				Spec: triggersv1beta1.EventListenerSpec{
+					Triggers: []triggersv1beta1.EventListenerTrigger{{
+						Template: &triggersv1beta1.EventListenerTemplate{
+							Ref: ptr.String("tt"),
+						},
+						Name: "test",
+						Interceptors: []*triggersv1beta1.EventInterceptor{{
+							Ref: triggersv1beta1.InterceptorRef{
+								Name: "cel",
+							},
+						},
+							nil,
+						},
+					}},
+				},
+			},
+			wantErr: &apis.FieldError{
+				Message: "invalid value: interceptor '<nil>' must be a valid value",
+				Paths:   []string{"spec.triggers[0].interceptors[1]"},
+			},
 		}}
 
 	for _, tc := range tests {

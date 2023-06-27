@@ -19,13 +19,13 @@ package eventlistener
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 	"github.com/tektoncd/triggers/pkg/reconciler/eventlistener/resources"
+	"github.com/tektoncd/triggers/pkg/reconciler/metrics"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -114,6 +114,7 @@ func compareEnv(x, y corev1.EnvVar) bool {
 func getEventListenerTestAssets(t *testing.T, r test.Resources, c *resources.Config) (test.Assets, context.CancelFunc) {
 	t.Helper()
 	ctx, _ := test.SetupFakeContext(t)
+	ctx = metrics.WithClient(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	kubeClient := fakekubeclient.Get(ctx)
 	// Fake client reactor chain ignores non handled reactors until v1.40.0
@@ -200,7 +201,7 @@ func makeDeployment(ops ...func(d *appsv1.Deployment)) *appsv1.Deployment {
 							Protocol:      corev1.ProtocolTCP,
 						}},
 						LivenessProbe: &corev1.Probe{
-							Handler: corev1.Handler{
+							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{
 									Path:   "/live",
 									Scheme: corev1.URISchemeHTTP,
@@ -211,7 +212,7 @@ func makeDeployment(ops ...func(d *appsv1.Deployment)) *appsv1.Deployment {
 							FailureThreshold: int32(resources.DefaultFailureThreshold),
 						},
 						ReadinessProbe: &corev1.Probe{
-							Handler: corev1.Handler{
+							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{
 									Path:   "/live",
 									Scheme: corev1.URISchemeHTTP,
@@ -229,8 +230,14 @@ func makeDeployment(ops ...func(d *appsv1.Deployment)) *appsv1.Deployment {
 							"--writetimeout=" + strconv.FormatInt(resources.DefaultWriteTimeout, 10),
 							"--idletimeout=" + strconv.FormatInt(resources.DefaultIdleTimeout, 10),
 							"--timeouthandler=" + strconv.FormatInt(resources.DefaultTimeOutHandler, 10),
+							"--httpclient-readtimeout=" + strconv.FormatInt(resources.DefaultHTTPClientReadTimeOut, 10),
+							"--httpclient-keep-alive=" + strconv.FormatInt(resources.DefaultHTTPClientKeepAlive, 10),
+							"--httpclient-tlshandshaketimeout=" + strconv.FormatInt(resources.DefaultHTTPClientTLSHandshakeTimeout, 10),
+							"--httpclient-responseheadertimeout=" + strconv.FormatInt(resources.DefaultHTTPClientResponseHeaderTimeout, 10),
+							"--httpclient-expectcontinuetimeout=" + strconv.FormatInt(resources.DefaultHTTPClientExpectContinueTimeout, 10),
 							"--is-multi-ns=false",
 							"--payload-validation=true",
+							"--cloudevent-uri=",
 							"--tls-cert=",
 							"--tls-key=",
 						},
@@ -252,6 +259,9 @@ func makeDeployment(ops ...func(d *appsv1.Deployment)) *appsv1.Deployment {
 							Name:  "EL_EVENT",
 							Value: "disable",
 						}, {
+							Name:  "K_SINK_TIMEOUT",
+							Value: strconv.FormatInt(resources.DefaultTimeOutHandler, 10),
+						}, {
 							Name: "SYSTEM_NAMESPACE",
 							ValueFrom: &corev1.EnvVarSource{
 								FieldRef: &corev1.ObjectFieldSelector{
@@ -263,6 +273,19 @@ func makeDeployment(ops ...func(d *appsv1.Deployment)) *appsv1.Deployment {
 							Name:  "METRICS_PROMETHEUS_PORT",
 							Value: "9000",
 						}},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: ptr.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
+							// 65532 is the distroless nonroot user ID
+							RunAsUser:    ptr.Int64(65532),
+							RunAsGroup:   ptr.Int64(65532),
+							RunAsNonRoot: ptr.Bool(true),
+							SeccompProfile: &corev1.SeccompProfile{
+								Type: corev1.SeccompProfileTypeRuntimeDefault,
+							},
+						},
 					}},
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: ptr.Bool(true),
@@ -375,8 +398,14 @@ func makeWithPod(ops ...func(d *duckv1.WithPod)) *duckv1.WithPod {
 							"--writetimeout=" + strconv.FormatInt(resources.DefaultWriteTimeout, 10),
 							"--idletimeout=" + strconv.FormatInt(resources.DefaultIdleTimeout, 10),
 							"--timeouthandler=" + strconv.FormatInt(resources.DefaultTimeOutHandler, 10),
+							"--httpclient-readtimeout=" + strconv.FormatInt(resources.DefaultHTTPClientReadTimeOut, 10),
+							"--httpclient-keep-alive=" + strconv.FormatInt(resources.DefaultHTTPClientKeepAlive, 10),
+							"--httpclient-tlshandshaketimeout=" + strconv.FormatInt(resources.DefaultHTTPClientTLSHandshakeTimeout, 10),
+							"--httpclient-responseheadertimeout=" + strconv.FormatInt(resources.DefaultHTTPClientResponseHeaderTimeout, 10),
+							"--httpclient-expectcontinuetimeout=" + strconv.FormatInt(resources.DefaultHTTPClientExpectContinueTimeout, 10),
 							"--is-multi-ns=" + strconv.FormatBool(false),
 							"--payload-validation=" + strconv.FormatBool(true),
+							"--cloudevent-uri=",
 						},
 						Env: []corev1.EnvVar{{
 							Name: "K_LOGGING_CONFIG",
@@ -396,14 +425,30 @@ func makeWithPod(ops ...func(d *duckv1.WithPod)) *duckv1.WithPod {
 							Name:  "EL_EVENT",
 							Value: "disable",
 						}, {
+							Name:  "K_SINK_TIMEOUT",
+							Value: strconv.FormatInt(resources.DefaultTimeOutHandler, 10),
+						}, {
 							Name:  "SYSTEM_NAMESPACE",
 							Value: namespace,
 						}, {
 							Name:  "METRICS_PROMETHEUS_PORT",
 							Value: "9000",
 						}},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: ptr.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
+							// 65532 is the distroless nonroot user ID
+							RunAsUser:    ptr.Int64(65532),
+							RunAsGroup:   ptr.Int64(65532),
+							RunAsNonRoot: ptr.Bool(true),
+							SeccompProfile: &corev1.SeccompProfile{
+								Type: corev1.SeccompProfileTypeRuntimeDefault,
+							},
+						},
 						ReadinessProbe: &corev1.Probe{
-							Handler: corev1.Handler{
+							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{
 									Path:   "/live",
 									Scheme: corev1.URISchemeHTTP,
@@ -537,14 +582,8 @@ func withDeletionTimestamp(el *v1beta1.EventListener) {
 }
 
 func TestReconcile(t *testing.T) {
-	err := os.Setenv("METRICS_PROMETHEUS_PORT", "9000")
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = os.Setenv("SYSTEM_NAMESPACE", "tekton-pipelines")
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Setenv("METRICS_PROMETHEUS_PORT", "9000")
+	t.Setenv("SYSTEM_NAMESPACE", "tekton-pipelines")
 
 	customPort := 80
 
@@ -846,6 +885,7 @@ func TestReconcile(t *testing.T) {
 
 	deploymentMissingSecurityContext := makeDeployment(func(d *appsv1.Deployment) {
 		d.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{}
+		d.Spec.Template.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{}
 	})
 
 	deploymentEventListenerEvent := makeDeployment(func(d *appsv1.Deployment) {
@@ -866,6 +906,9 @@ func TestReconcile(t *testing.T) {
 		}, {
 			Name:  "EL_EVENT",
 			Value: "enable",
+		}, {
+			Name:  "K_SINK_TIMEOUT",
+			Value: strconv.FormatInt(resources.DefaultTimeOutHandler, 10),
 		}, {
 			Name: "SYSTEM_NAMESPACE",
 			ValueFrom: &corev1.EnvVarSource{
@@ -938,6 +981,9 @@ func TestReconcile(t *testing.T) {
 		}, {
 			Name:  "EL_EVENT",
 			Value: "disable",
+		}, {
+			Name:  "K_SINK_TIMEOUT",
+			Value: strconv.FormatInt(resources.DefaultTimeOutHandler, 10),
 		}, {
 			Name: "key",
 			ValueFrom: &corev1.EnvVarSource{
@@ -1464,10 +1510,7 @@ func TestReconcile(t *testing.T) {
 }
 
 func TestReconcile_InvalidForCustomResource(t *testing.T) {
-	err := os.Setenv("SYSTEM_NAMESPACE", "tekton-pipelines")
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Setenv("SYSTEM_NAMESPACE", "tekton-pipelines")
 
 	elWithCustomResource := makeEL(withStatus, withKnativeStatus, func(el *v1beta1.EventListener) {
 		el.Spec.Resources.CustomResource = &v1beta1.CustomResource{

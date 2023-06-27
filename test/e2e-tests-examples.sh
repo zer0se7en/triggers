@@ -39,10 +39,13 @@ err() {
 
 install_knative_serving() {
   # Install Knative by referring https://knative.dev/docs/admin/install/serving/install-serving-with-yaml/#install-the-knative-serving-component
-  kubectl apply -f https://github.com/knative/serving/releases/download/v0.26.0/serving-crds.yaml
-  kubectl apply -f https://github.com/knative/serving/releases/download/v0.26.0/serving-core.yaml
+  kubectl apply -f https://github.com/knative/serving/releases/download/knative-v1.6.0/serving-crds.yaml
+  kubectl apply -f https://github.com/knative/serving/releases/download/knative-v1.6.0/serving-core.yaml
 
-  kubectl apply -f https://github.com/knative/net-kourier/releases/download/v0.26.0/kourier.yaml
+  # Wait for pods to be running in the namespaces we are deploying to
+  wait_until_pods_running knative-serving || fail_test "Knative Serving did not come up"
+
+  kubectl apply -f https://github.com/knative/net-kourier/releases/download/knative-v1.6.0/kourier.yaml
 
   kubectl patch configmap/config-network \
     --namespace knative-serving \
@@ -50,7 +53,7 @@ install_knative_serving() {
     --patch '{"data":{"ingress.class":"kourier.ingress.networking.knative.dev"}}'
 
   # Wait for pods to be running in the namespaces we are deploying to
-  wait_until_pods_running knative-serving || fail_test "Knative Serving did not come up"
+  wait_until_pods_running knative-serving || fail_test "Knative Serving & Kourier did not come up"
   # Changing port of kourier service to use 8888 instead of 80 so that port-forward can be done easily
   # Because with 80 its giving permission deneid and in Knative all traffic goes via gateway which is kourier here.
   kubectl -n kourier-system patch service/kourier --type=json -p="[{"op": "add", "path": "/spec/ports/0/port", "value": $forwardingPort}]"
@@ -73,19 +76,20 @@ apply_files() {
 
 check_eventlistener() {
   info "Waiting for EventListener to be available"
-
+ 
   elName=${current_example}-listener
-  kubectl wait --for=condition=Ready --timeout=20s eventlisteners/${elName}  || {
+  kubectl wait --for=condition=Ready --timeout=60s eventlisteners/${elName}  || {
     err "eventlistener failed to get in running state"
     exit 1
   }
+  
   kubectl get eventlisteners
 }
 
-ignoreExamples=( cron trigger-ref v1alpha1-task )
+ignoreExamples=( cron trigger-ref triggergroups )
 
 port_forward_and_curl() {
-
+sleep 10
   if [[ " ${ignoreExamples[@]} " =~ " ${current_example} " ]]; then
     info 'ignoring for port forwarding'
     return
@@ -174,12 +178,16 @@ main() {
 
   versions="v1alpha1 v1beta1"
   # List of examples test will run on
-  examples="bitbucket cron embedded-trigger github gitlab label-selector namespace-selector v1alpha1-task trigger-ref"
+  examples_v1alpha1="bitbucket-server cron embedded-trigger github gitlab label-selector namespace-selector trigger-ref"
+  examples_v1beta1="${examples_v1alpha1} slack bitbucket-cloud triggergroups github-add-changed-files-pr github-add-changed-files-push-cel github-owners"
+
+
   create_example_pipeline
   for v in ${versions}; do
     current_example_version=${v}
+    examples=examples_$v
     echo "Applying examples for version: ${v}"
-    for e in ${examples}; do
+    for e in ${!examples}; do
       current_example=${e}
       echo "*** Example ${current_example_version}/${current_example} ***";
       apply_files

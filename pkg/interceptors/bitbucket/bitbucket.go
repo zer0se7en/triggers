@@ -20,31 +20,33 @@ import (
 	"context"
 	"net/http"
 
-	"google.golang.org/grpc/codes"
-	corev1lister "k8s.io/client-go/listers/core/v1"
-
 	gh "github.com/google/go-github/v31/github"
 	triggersv1 "github.com/tektoncd/triggers/pkg/apis/triggers/v1beta1"
 	"github.com/tektoncd/triggers/pkg/interceptors"
-	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
 )
 
-var _ triggersv1.InterceptorInterface = (*Interceptor)(nil)
+var _ triggersv1.InterceptorInterface = (*InterceptorImpl)(nil)
 
-type Interceptor struct {
-	SecretLister corev1lister.SecretLister
-	Logger       *zap.SugaredLogger
+type InterceptorImpl struct {
+	SecretGetter interceptors.SecretGetter
 }
 
-func NewInterceptor(sl corev1lister.SecretLister, l *zap.SugaredLogger) *Interceptor {
-	return &Interceptor{
-		SecretLister: sl,
-		Logger:       l,
+func NewInterceptor(sg interceptors.SecretGetter) *InterceptorImpl {
+	return &InterceptorImpl{
+		SecretGetter: sg,
 	}
 }
 
-func (w *Interceptor) Process(ctx context.Context, r *triggersv1.InterceptorRequest) *triggersv1.InterceptorResponse {
-	p := triggersv1.BitbucketInterceptor{}
+// InterceptorParams provides a webhook to intercept and pre-process events
+type InterceptorParams struct {
+	SecretRef *triggersv1.SecretRef `json:"secretRef,omitempty"`
+	// +listType=atomic
+	EventTypes []string `json:"eventTypes,omitempty"`
+}
+
+func (w *InterceptorImpl) Process(ctx context.Context, r *triggersv1.InterceptorRequest) *triggersv1.InterceptorResponse {
+	p := InterceptorParams{}
 	if err := interceptors.UnmarshalParams(r.InterceptorParams, &p); err != nil {
 		return interceptors.Failf(codes.InvalidArgument, "failed to parse interceptor params: %v", err)
 	}
@@ -76,8 +78,13 @@ func (w *Interceptor) Process(ctx context.Context, r *triggersv1.InterceptorRequ
 		if header == "" {
 			return interceptors.Fail(codes.InvalidArgument, "no X-Hub-Signature header set")
 		}
+
+		if r.Context == nil {
+			return interceptors.Failf(codes.InvalidArgument, "no request context passed")
+		}
+
 		ns, _ := triggersv1.ParseTriggerID(r.Context.TriggerID)
-		secretToken, err := interceptors.GetSecretToken(nil, w.SecretLister, p.SecretRef, ns)
+		secretToken, err := w.SecretGetter.Get(ctx, ns, p.SecretRef)
 		if err != nil {
 			return interceptors.Failf(codes.FailedPrecondition, "error getting secret: %v", err)
 		}

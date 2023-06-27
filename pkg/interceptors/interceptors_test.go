@@ -18,32 +18,29 @@ package interceptors_test
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 
-	"github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
-
 	"github.com/google/go-cmp/cmp"
 	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
+	"github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 	triggersv1 "github.com/tektoncd/triggers/pkg/apis/triggers/v1beta1"
 	"github.com/tektoncd/triggers/pkg/interceptors"
+	"github.com/tektoncd/triggers/pkg/interceptors/cel"
 	"github.com/tektoncd/triggers/pkg/interceptors/server"
 	"github.com/tektoncd/triggers/test"
 	"go.uber.org/zap/zaptest"
 	"google.golang.org/grpc/codes"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
-	fakeSecretInformer "knative.dev/pkg/client/injection/kube/informers/core/v1/secret/fake"
 )
-
-const testNS = "testing-ns"
 
 func TestGetInterceptorParams(t *testing.T) {
 	for _, tc := range []struct {
@@ -59,7 +56,7 @@ func TestGetInterceptorParams(t *testing.T) {
 				Value: test.ToV1JSON(t, `header.match("foo", "bar")`),
 			}, {
 				Name: "overlays",
-				Value: test.ToV1JSON(t, []triggersv1.CELOverlay{{
+				Value: test.ToV1JSON(t, []cel.Overlay{{
 					Key:        "short_sha",
 					Expression: "body.ref.truncate(7)",
 				}}),
@@ -67,7 +64,7 @@ func TestGetInterceptorParams(t *testing.T) {
 		},
 		want: map[string]interface{}{
 			"filter": test.ToV1JSON(t, `header.match("foo", "bar")`),
-			"overlays": test.ToV1JSON(t, []triggersv1.CELOverlay{{
+			"overlays": test.ToV1JSON(t, []cel.Overlay{{
 				Key:        "short_sha",
 				Expression: "body.ref.truncate(7)",
 			}}),
@@ -150,7 +147,7 @@ func TestGetInterceptorParams(t *testing.T) {
 				},
 				Header: []pipelinev1.Param{{
 					Name: "p1",
-					Value: pipelinev1.ArrayOrString{
+					Value: pipelinev1.ParamValue{
 						Type:     pipelinev1.ParamTypeArray,
 						ArrayVal: []string{"v1", "v2"},
 					},
@@ -166,7 +163,7 @@ func TestGetInterceptorParams(t *testing.T) {
 			},
 			"header": []pipelinev1.Param{{
 				Name: "p1",
-				Value: pipelinev1.ArrayOrString{
+				Value: pipelinev1.ParamValue{
 					Type:     pipelinev1.ParamTypeArray,
 					ArrayVal: []string{"v1", "v2"},
 				},
@@ -284,63 +281,6 @@ func TestGetInterceptorParams_Error(t *testing.T) {
 	}
 }
 
-func TestGetSecretToken(t *testing.T) {
-	tests := []struct {
-		name   string
-		cache  map[string]interface{}
-		wanted []byte
-	}{{
-		name:   "no matching cache entry exists",
-		cache:  make(map[string]interface{}),
-		wanted: []byte("secret from API"),
-	}, {
-		name: "a matching cache entry exists",
-		cache: map[string]interface{}{
-			fmt.Sprintf("secret/%s/test-secret/token", testNS): []byte("secret from cache"),
-		},
-		wanted: []byte("secret from cache"),
-	}}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(rt *testing.T) {
-			req := &http.Request{}
-			req = req.WithContext(context.WithValue(req.Context(), interceptors.RequestCacheKey, tt.cache))
-
-			ctx, _ := test.SetupFakeContext(t)
-			secretInformer := fakeSecretInformer.Get(ctx)
-			secretRef := triggersv1.SecretRef{
-				SecretKey:  "token",
-				SecretName: "test-secret",
-			}
-
-			if err := secretInformer.Informer().GetIndexer().Add(makeSecret("secret from API")); err != nil {
-				t.Fatal(err)
-			}
-
-			secret, err := interceptors.GetSecretToken(req, secretInformer.Lister(), &secretRef, testNS)
-			if err != nil {
-				rt.Error(err)
-			}
-
-			if diff := cmp.Diff(tt.wanted, secret); diff != "" {
-				rt.Errorf("secret value (-want, +got) = %s", diff)
-			}
-		})
-	}
-}
-
-func makeSecret(secretText string) *corev1.Secret {
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: testNS,
-			Name:      "test-secret",
-		},
-		Data: map[string][]byte{
-			"token": []byte(secretText),
-		},
-	}
-}
-
 func TestResolveToURL(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -416,7 +356,7 @@ func TestResolveToURL(t *testing.T) {
 
 // testServer creates a httptest server with the passed in handler and returns a http.Client that
 // can be used to talk to these interceptors
-func testServer(t testing.TB, handler http.Handler) *http.Client {
+func testServer(t testing.TB, handler http.Handler, d ...*http.Transport) *http.Client {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(func() {
@@ -427,8 +367,12 @@ func testServer(t testing.TB, handler http.Handler) *http.Client {
 	if err != nil {
 		t.Fatalf("testServer() url parse err: %v", err)
 	}
-	httpClient.Transport = &http.Transport{
-		Proxy: http.ProxyURL(u),
+	if d != nil {
+		httpClient.Transport = d[0] // as we are passing only one data so referring 0th index
+	} else {
+		httpClient.Transport = &http.Transport{
+			Proxy: http.ProxyURL(u),
+		}
 	}
 	return httpClient
 }
@@ -538,10 +482,29 @@ func TestExecute_Error(t *testing.T) {
 		svr: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write([]byte(`not_json`))
 		}),
+	}, {
+		name: "HTTPS URL",
+		req:  defaultReq,
+		url:  "https://interceptorurl.com",
+		svr:  coreInterceptors,
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
-			client := testServer(t, tc.svr)
-			got, err := interceptors.Execute(context.Background(), client, tc.req, tc.url)
+			var (
+				got *triggersv1.InterceptorResponse
+				err error
+			)
+			if strings.Contains(tc.url, "https") {
+				client := testServer(t, tc.svr, &http.Transport{
+					TLSClientConfig: &tls.Config{
+						RootCAs:    x509.NewCertPool(),
+						MinVersion: tls.VersionTLS13, // Added MinVersion to avoid  G402: TLS MinVersion too low. (gosec)
+					},
+				})
+				got, err = interceptors.Execute(context.Background(), client, tc.req, tc.url)
+			} else {
+				client := testServer(t, tc.svr)
+				got, err = interceptors.Execute(context.Background(), client, tc.req, tc.url)
+			}
 			if err == nil {
 				t.Fatalf("Execute() did not get expected error. Response was %+v", got)
 			}

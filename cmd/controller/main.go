@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-		http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,6 +21,7 @@ import (
 
 	"github.com/tektoncd/triggers/pkg/reconciler/clusterinterceptor"
 	elresources "github.com/tektoncd/triggers/pkg/reconciler/eventlistener/resources"
+	"github.com/tektoncd/triggers/pkg/reconciler/interceptor"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -46,8 +47,18 @@ var (
 	writeTimeOut          = flag.Int64("el-writetimeout", elresources.DefaultWriteTimeout, "The write timeout for EventListener Server.")
 	idleTimeOut           = flag.Int64("el-idletimeout", elresources.DefaultIdleTimeout, "The idle timeout for EventListener Server.")
 	timeOutHandler        = flag.Int64("el-timeouthandler", elresources.DefaultTimeOutHandler, "The timeout for Timeout Handler of EventListener Server.")
-	periodSeconds         = flag.Int("period-seconds", elresources.DefaultPeriodSeconds, "The Period Seconds for the EventListener Liveness and Readiness Probes.")
-	failureThreshold      = flag.Int("failure-threshold", elresources.DefaultFailureThreshold, "The Failure Threshold for the EventListener Liveness and Readiness Probes.")
+	httpClientReadTimeOut = flag.Int64("el-httpclient-readtimeout", elresources.DefaultHTTPClientReadTimeOut,
+		"The HTTP Client read timeout for EventListener Server.")
+	httpClientKeepAlive = flag.Int64("el-httpclient-keep-alive", elresources.DefaultHTTPClientKeepAlive,
+		"The HTTP Client read timeout for EventListener Server.")
+	httpClientTLSHandshakeTimeout = flag.Int64("el-httpclient-tlshandshaketimeout", elresources.DefaultHTTPClientTLSHandshakeTimeout,
+		"The HTTP Client read timeout for EventListener Server.")
+	httpClientResponseHeaderTimeout = flag.Int64("el-httpclient-responseheadertimeout", elresources.DefaultHTTPClientResponseHeaderTimeout,
+		"The HTTP Client read timeout for EventListener Server.")
+	httpClientExpectContinueTimeout = flag.Int64("el-httpclient-expectcontinuetimeout", elresources.DefaultHTTPClientExpectContinueTimeout,
+		"The HTTP Client read timeout for EventListener Server.")
+	periodSeconds    = flag.Int("period-seconds", elresources.DefaultPeriodSeconds, "The Period Seconds for the EventListener Liveness and Readiness Probes.")
+	failureThreshold = flag.Int("failure-threshold", elresources.DefaultFailureThreshold, "The Failure Threshold for the EventListener Liveness and Readiness Probes.")
 
 	staticResourceLabels = elresources.DefaultStaticResourceLabels
 	systemNamespace      = os.Getenv("SYSTEM_NAMESPACE")
@@ -57,16 +68,21 @@ func main() {
 	cfg := injection.ParseAndGetRESTConfigOrDie()
 
 	c := elresources.Config{
-		Image:                 image,
-		Port:                  port,
-		SetSecurityContext:    setSecurityContext,
-		SetEventListenerEvent: setEventListenerEvent,
-		ReadTimeOut:           readTimeOut,
-		WriteTimeOut:          writeTimeOut,
-		IdleTimeOut:           idleTimeOut,
-		TimeOutHandler:        timeOutHandler,
-		PeriodSeconds:         periodSeconds,
-		FailureThreshold:      failureThreshold,
+		Image:                           image,
+		Port:                            port,
+		SetSecurityContext:              setSecurityContext,
+		SetEventListenerEvent:           setEventListenerEvent,
+		ReadTimeOut:                     readTimeOut,
+		WriteTimeOut:                    writeTimeOut,
+		IdleTimeOut:                     idleTimeOut,
+		TimeOutHandler:                  timeOutHandler,
+		HTTPClientReadTimeOut:           httpClientReadTimeOut,
+		HTTPClientKeepAlive:             httpClientKeepAlive,
+		HTTPClientTLSHandshakeTimeout:   httpClientTLSHandshakeTimeout,
+		HTTPClientResponseHeaderTimeout: httpClientResponseHeaderTimeout,
+		HTTPClientExpectContinueTimeout: httpClientExpectContinueTimeout,
+		PeriodSeconds:                   periodSeconds,
+		FailureThreshold:                failureThreshold,
 
 		StaticResourceLabels: staticResourceLabels,
 		SystemNamespace:      systemNamespace,
@@ -80,5 +96,6 @@ func main() {
 		cfg,
 		eventlistener.NewController(c),
 		clusterinterceptor.NewController(),
+		interceptor.NewController(),
 	)
 }

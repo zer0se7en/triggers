@@ -25,13 +25,12 @@ import (
 	logger "github.com/sirupsen/logrus"
 	fakepipelineclientset "github.com/tektoncd/pipeline/pkg/client/clientset/versioned/fake"
 	fakepipelineclient "github.com/tektoncd/pipeline/pkg/client/injection/client/fake"
-	fakeresourceclientset "github.com/tektoncd/pipeline/pkg/client/resource/clientset/versioned/fake"
-	fakeresourceclient "github.com/tektoncd/pipeline/pkg/client/resource/injection/client/fake"
 	"github.com/tektoncd/triggers/pkg/apis/triggers/v1alpha1"
 	"github.com/tektoncd/triggers/pkg/apis/triggers/v1beta1"
 	faketriggersclientset "github.com/tektoncd/triggers/pkg/client/clientset/versioned/fake"
 	faketriggersclient "github.com/tektoncd/triggers/pkg/client/injection/client/fake"
 	fakeClusterInterceptorinformer "github.com/tektoncd/triggers/pkg/client/injection/informers/triggers/v1alpha1/clusterinterceptor/fake"
+	fakeInterceptorinformer "github.com/tektoncd/triggers/pkg/client/injection/informers/triggers/v1alpha1/interceptor/fake"
 	fakeclustertriggerbindinginformer "github.com/tektoncd/triggers/pkg/client/injection/informers/triggers/v1beta1/clustertriggerbinding/fake"
 	fakeeventlistenerinformer "github.com/tektoncd/triggers/pkg/client/injection/informers/triggers/v1beta1/eventlistener/fake"
 	faketriggerinformer "github.com/tektoncd/triggers/pkg/client/injection/informers/triggers/v1beta1/trigger/fake"
@@ -75,6 +74,7 @@ type Resources struct {
 	ClusterTriggerBindings []*v1beta1.ClusterTriggerBinding
 	EventListeners         []*v1beta1.EventListener
 	ClusterInterceptors    []*v1alpha1.ClusterInterceptor
+	Interceptors           []*v1alpha1.Interceptor
 	TriggerBindings        []*v1beta1.TriggerBinding
 	TriggerTemplates       []*v1beta1.TriggerTemplate
 	Triggers               []*v1beta1.Trigger
@@ -91,7 +91,6 @@ type Clients struct {
 	Kube          *fakekubeclientset.Clientset
 	Triggers      *faketriggersclientset.Clientset
 	Pipeline      *fakepipelineclientset.Clientset
-	Resource      *fakeresourceclientset.Clientset
 	DynamicClient *fakedynamic.FakeDynamicClient
 }
 
@@ -128,7 +127,6 @@ func SeedResources(t *testing.T, ctx context.Context, r Resources) Clients {
 		Kube:          fakekubeclient.Get(ctx),
 		Triggers:      faketriggersclient.Get(ctx),
 		Pipeline:      fakepipelineclient.Get(ctx),
-		Resource:      fakeresourceclient.Get(ctx),
 		DynamicClient: fakedynamicclientset.Get(ctx),
 	}
 
@@ -139,6 +137,7 @@ func SeedResources(t *testing.T, ctx context.Context, r Resources) Clients {
 	ctbInformer := fakeclustertriggerbindinginformer.Get(ctx)
 	elInformer := fakeeventlistenerinformer.Get(ctx)
 	icInformer := fakeClusterInterceptorinformer.Get(ctx)
+	nsicInformer := fakeInterceptorinformer.Get(ctx)
 	ttInformer := faketriggertemplateinformer.Get(ctx)
 	tbInformer := faketriggerbindinginformer.Get(ctx)
 	trInformer := faketriggerinformer.Get(ctx)
@@ -177,6 +176,14 @@ func SeedResources(t *testing.T, ctx context.Context, r Resources) Clients {
 			t.Fatal(err)
 		}
 		if _, err := c.Triggers.TriggersV1alpha1().ClusterInterceptors().Create(context.Background(), ic, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, ic := range r.Interceptors {
+		if err := nsicInformer.Informer().GetIndexer().Add(ic); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Triggers.TriggersV1alpha1().Interceptors(ic.Namespace).Create(context.Background(), ic, metav1.CreateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}

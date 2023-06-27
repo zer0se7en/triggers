@@ -185,6 +185,17 @@ spec:
     ref: git-clone-template
 ```
 
+## Accessing EventListener Event Context
+
+The EventListener has a set of internal data points that are maintained for the complete processing
+of a single event. These values are available for use in `TriggerBinding` objects.
+
+This data can be accessed on the `context` parameter, as an example:
+
+```shell
+$(context.eventID) # access the internal eventID of the request
+```
+
 ## Accessing JSON keys containing periods (`.`)
 
 To access a JSON key that contains a period (`.`), you must escape the period with a backslash (`\.`). For example:
@@ -298,7 +309,7 @@ to determine the parameters that Tekton generates from that request when your co
 To install the `binding-eval` tool use the following command:
 
 ```sh
-$ go get -u github.com/tektoncd/triggers/cmd/binding-eval
+$ go install github.com/tektoncd/triggers/cmd/binding-eval@{version}
 ```
 
 Below is an example of using the tool to evaluate a `TriggerBinding`:

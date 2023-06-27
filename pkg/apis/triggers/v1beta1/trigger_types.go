@@ -109,8 +109,6 @@ type InterceptorRef struct {
 	// Name of the referent; More info: http://kubernetes.io/docs/user-guide/identifiers#names
 	Name string `json:"name,omitempty"`
 	// InterceptorKind indicates the kind of the Interceptor, namespaced or cluster scoped.
-	// Currently only InterceptorKind is ClusterInterceptor, so the only valid value
-	// is the default one
 	// +optional
 	Kind InterceptorKind `json:"kind,omitempty"`
 	// API version of the referent
@@ -122,8 +120,10 @@ type InterceptorRef struct {
 type InterceptorKind string
 
 const (
-	// ClusterTaskKind indicates that task type has a cluster scope.
+	// ClusterInterceptorKind indicates that Interceptor type has a cluster scope.
 	ClusterInterceptorKind InterceptorKind = "ClusterInterceptor"
+	// NamespacedInterceptorKind indicates that Interceptor type has a namespace scope.
+	NamespacedInterceptorKind InterceptorKind = "NamespacedInterceptor"
 )
 
 func (ti *TriggerInterceptor) defaultInterceptorKind() {
@@ -153,40 +153,6 @@ type WebhookInterceptor struct {
 	// decisions specific to an EventListenerTrigger.
 	// +listType=atomic
 	Header []v1beta1.Param `json:"header,omitempty"`
-}
-
-// BitbucketInterceptor provides a webhook to intercept and pre-process events
-type BitbucketInterceptor struct {
-	SecretRef *SecretRef `json:"secretRef,omitempty"`
-	// +listType=atomic
-	EventTypes []string `json:"eventTypes,omitempty"`
-}
-
-// GitHubInterceptor provides a webhook to intercept and pre-process events
-type GitHubInterceptor struct {
-	SecretRef *SecretRef `json:"secretRef,omitempty"`
-	// +listType=atomic
-	EventTypes []string `json:"eventTypes,omitempty"`
-}
-
-// GitLabInterceptor provides a webhook to intercept and pre-process events
-type GitLabInterceptor struct {
-	SecretRef *SecretRef `json:"secretRef,omitempty"`
-	// +listType=atomic
-	EventTypes []string `json:"eventTypes,omitempty"`
-}
-
-// CELInterceptor provides a webhook to intercept and pre-process events
-type CELInterceptor struct {
-	Filter string `json:"filter,omitempty"`
-	// +listType=atomic
-	Overlays []CELOverlay `json:"overlays,omitempty"`
-}
-
-// CELOverlay provides a way to modify the request body using CEL expressions
-type CELOverlay struct {
-	Key        string `json:"key,omitempty"`
-	Expression string `json:"expression,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

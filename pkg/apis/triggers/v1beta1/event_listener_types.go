@@ -66,6 +66,7 @@ type EventListenerSpec struct {
 	NamespaceSelector NamespaceSelector           `json:"namespaceSelector,omitempty"`
 	LabelSelector     *metav1.LabelSelector       `json:"labelSelector,omitempty"`
 	Resources         Resources                   `json:"resources,omitempty"`
+	CloudEventURI     string                      `json:"cloudEventURI,omitempty"`
 }
 
 type Resources struct {
@@ -82,19 +83,6 @@ type KubernetesResource struct {
 	ServiceType        corev1.ServiceType `json:"serviceType,omitempty"`
 	ServicePort        *int32             `json:"servicePort,omitempty"`
 	duckv1.WithPodSpec `json:"spec,omitempty"`
-}
-
-type PodTemplate struct {
-	// If specified, the pod's tolerations.
-	// +optional
-	// +listType=atomic
-	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
-
-	// NodeSelector is a selector which must be true for the pod to fit on a node.
-	// Selector which must match a node's labels for the pod to be scheduled on that node.
-	// More info: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/
-	// +optional
-	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 }
 
 // EventListenerTrigger represents a connection between TriggerBinding, Params,

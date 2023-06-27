@@ -22,11 +22,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
+	net "net/url"
 	"os"
 	"sync"
 
+	cloudevents "github.com/cloudevents/sdk-go/v2"
+	"github.com/cloudevents/sdk-go/v2/binding"
+	cehttp "github.com/cloudevents/sdk-go/v2/protocol/http"
 	"github.com/tektoncd/triggers/pkg/apis/triggers"
 	triggersv1 "github.com/tektoncd/triggers/pkg/apis/triggers/v1beta1"
 	triggersclientset "github.com/tektoncd/triggers/pkg/client/clientset/versioned"
@@ -36,6 +40,7 @@ import (
 	"github.com/tektoncd/triggers/pkg/interceptors/webhook"
 	"github.com/tektoncd/triggers/pkg/reconciler/events"
 	"github.com/tektoncd/triggers/pkg/resources"
+	"github.com/tektoncd/triggers/pkg/sink/cloudevent"
 	"github.com/tektoncd/triggers/pkg/template"
 	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
@@ -46,6 +51,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
+	"knative.dev/pkg/apis"
 	v1 "knative.dev/pkg/apis/duck/v1"
 )
 
@@ -57,12 +63,14 @@ type Sink struct {
 	DiscoveryClient        discoveryclient.ServerResourcesInterface
 	DynamicClient          dynamic.Interface
 	HTTPClient             *http.Client
+	CEClient               cloudevent.CEClient
 	EventListenerName      string
 	EventListenerNamespace string
 	Logger                 *zap.SugaredLogger
 	Recorder               *Recorder
 	Auth                   AuthOverride
 	PayloadValidation      bool
+	CloudEventURI          string
 	// WGProcessTriggers keeps track of triggers or triggerGroups currently being processed
 	// Currently only used in tests to wait for all triggers to finish processing
 	WGProcessTriggers *sync.WaitGroup
@@ -75,6 +83,7 @@ type Sink struct {
 	ClusterTriggerBindingLister listers.ClusterTriggerBindingLister
 	TriggerTemplateLister       listers.TriggerTemplateLister
 	ClusterInterceptorLister    listersv1alpha1.ClusterInterceptorLister
+	InterceptorLister           listersv1alpha1.InterceptorLister
 }
 
 // Response defines the HTTP body that the Sink responds to events with.
@@ -105,6 +114,9 @@ func (r Sink) HandleEvent(response http.ResponseWriter, request *http.Request) {
 		zap.String("eventlistener", r.EventListenerName),
 		zap.String("namespace", r.EventListenerNamespace),
 	)
+	eventID := template.UUID()
+	log = log.With(zap.String(triggers.EventIDLabelKey, eventID))
+
 	elTemp := triggersv1.EventListener{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "EventListener",
@@ -135,29 +147,32 @@ func (r Sink) HandleEvent(response http.ResponseWriter, request *http.Request) {
 		},
 	}
 
+	r.emitEvents(r.EventRecorder, &elTemp, events.TriggerProcessingStartedV1, nil)
+	r.sendCloudEvents(request.Header, elTemp, eventID, events.TriggerProcessingStartedV1)
+
+	event, err := io.ReadAll(request.Body)
+	if err != nil {
+		log.Errorf("Error reading event body: %s", err)
+		r.recordCountMetrics(failTag)
+		response.WriteHeader(http.StatusInternalServerError)
+		r.emitEvents(r.EventRecorder, &elTemp, events.TriggerProcessingFailedV1, err)
+		r.sendCloudEvents(request.Header, elTemp, eventID, events.TriggerProcessingFailedV1)
+		return
+	}
+
 	el, err := r.EventListenerLister.EventListeners(r.EventListenerNamespace).Get(r.EventListenerName)
 	if err != nil {
 		log.Errorf("Error getting EventListener %s in Namespace %s: %s", r.EventListenerName, r.EventListenerNamespace, err)
 		r.recordCountMetrics(failTag)
 		response.WriteHeader(http.StatusInternalServerError)
 		r.emitEvents(r.EventRecorder, &elTemp, events.TriggerProcessingFailedV1, err)
+		r.sendCloudEvents(request.Header, elTemp, eventID, events.TriggerProcessingFailedV1)
 		return
 	}
-
-	r.emitEvents(r.EventRecorder, el, events.TriggerProcessingStartedV1, nil)
 
 	elUID := string(el.GetUID())
 	log = log.With(zap.String("eventlistenerUID", elUID))
-	event, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		log.Errorf("Error reading event body: %s", err)
-		r.recordCountMetrics(failTag)
-		response.WriteHeader(http.StatusInternalServerError)
-		r.emitEvents(r.EventRecorder, el, events.TriggerProcessingFailedV1, err)
-		return
-	}
 
-	eventID := template.UUID()
 	log = log.With(zap.String(triggers.EventIDLabelKey, eventID))
 	log.Debugf("handling event with path %s, payload: %s and header: %v", request.URL.Path, string(event), request.Header)
 	trItems, err := r.selectTriggers(el.Spec.NamespaceSelector, el.Spec.LabelSelector)
@@ -165,6 +180,7 @@ func (r Sink) HandleEvent(response http.ResponseWriter, request *http.Request) {
 		r.Logger.Errorf("unable to select configured mergedTriggers: %s", err)
 		response.WriteHeader(http.StatusInternalServerError)
 		r.emitEvents(r.EventRecorder, el, events.TriggerProcessingFailedV1, err)
+		r.sendCloudEvents(nil, *el, eventID, events.TriggerProcessingFailedV1)
 		return
 	}
 
@@ -174,6 +190,7 @@ func (r Sink) HandleEvent(response http.ResponseWriter, request *http.Request) {
 		log.Errorf("error merging triggers: %s", err)
 		response.WriteHeader(http.StatusInternalServerError)
 		r.emitEvents(r.EventRecorder, el, events.TriggerProcessingFailedV1, err)
+		r.sendCloudEvents(nil, *el, eventID, events.TriggerProcessingFailedV1)
 		return
 	}
 	r.WGProcessTriggers.Add(len(mergedTriggers))
@@ -182,7 +199,7 @@ func (r Sink) HandleEvent(response http.ResponseWriter, request *http.Request) {
 			defer r.WGProcessTriggers.Done()
 			localRequest := request.Clone(request.Context())
 			emptyExtensions := make(map[string]interface{})
-			r.processTrigger(t, localRequest, event, eventID, log, emptyExtensions)
+			r.processTrigger(t, el, localRequest, event, eventID, log, emptyExtensions)
 		}(*t)
 	}
 
@@ -192,24 +209,78 @@ func (r Sink) HandleEvent(response http.ResponseWriter, request *http.Request) {
 		go func(g triggersv1.EventListenerTriggerGroup) {
 			defer r.WGProcessTriggers.Done()
 			localRequest := request.Clone(request.Context())
-			r.processTriggerGroups(g, localRequest, event, eventID, log, r.WGProcessTriggers)
+			r.processTriggerGroups(g, el, localRequest, event, eventID, log, r.WGProcessTriggers)
 		}(group)
 	}
 
 	r.recordCountMetrics(successTag)
-	response.WriteHeader(http.StatusAccepted)
-	response.Header().Set("Content-Type", "application/json")
+
 	body := Response{
 		EventListener:    r.EventListenerName,
 		EventListenerUID: elUID,
 		Namespace:        r.EventListenerNamespace,
 		EventID:          eventID,
 	}
-	if err := json.NewEncoder(response).Encode(body); err != nil {
-		log.Errorf("failed to write back sink response: %v", err)
-		r.emitEvents(r.EventRecorder, el, events.TriggerProcessingFailedV1, err)
+
+	msg := cehttp.NewMessageFromHttpRequest(request)
+	if encoding := msg.ReadEncoding(); encoding == binding.EncodingUnknown {
+		response.WriteHeader(http.StatusAccepted)
+		response.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(response).Encode(body); err != nil {
+			log.Errorf("failed to write back sink response: %v", err)
+			r.emitEvents(r.EventRecorder, el, events.TriggerProcessingFailedV1, err)
+			r.sendCloudEvents(nil, *el, eventID, events.TriggerProcessingFailedV1)
+		}
+
+	} else {
+		responseEvent := cloudevents.NewEvent()
+		responseEvent.SetID(eventID)
+		responseEvent.SetType(events.EventAccepted)
+		responseEvent.SetSubject(r.EventListenerNamespace + "." + r.EventListenerName + " accepted " + eventID)
+		responseEvent.SetSource(r.EventListenerName) // We need to change this like in SendCloudEvents
+
+		_ = responseEvent.SetData(cloudevents.ApplicationJSON, body)
+
+		eventResponse := binding.ToMessage(&responseEvent)
+		defer func() {
+			if err := eventResponse.Finish(nil); err != nil {
+				log.Errorf("failed to close cloud event sink response: %v", err)
+			}
+		}()
+
+		if err := cehttp.WriteResponseWriter(request.Context(), eventResponse, http.StatusAccepted, response); err != nil {
+			log.Errorf("failed to write back cloud event sink response: %v", err)
+			r.emitEvents(r.EventRecorder, el, events.TriggerProcessingFailedV1, err)
+			r.sendCloudEvents(nil, *el, eventID, events.TriggerProcessingFailedV1)
+		}
 	}
-	r.emitEvents(r.EventRecorder, el, events.TriggerProcessingSuccessfulV1, nil)
+	r.emitEvents(r.EventRecorder, el, events.TriggerProcessingDoneV1, nil)
+	r.sendCloudEvents(nil, *el, eventID, events.TriggerProcessingDoneV1)
+}
+
+func (r Sink) sendCloudEvents(headers http.Header, el triggersv1.EventListener, eventID, eventType string) {
+	data, err := json.Marshal(headers)
+	if err != nil {
+		r.Logger.Errorf("Error marshaling request Headers to json: %s", err)
+		return
+	}
+
+	// If no cloudEventURI, then don't try to sendCloudEvents
+	if r.CloudEventURI == "" {
+		return
+	}
+
+	resource := cloudevent.Resource{
+		EventID:   eventID,
+		EventType: eventType,
+		TargetURI: r.CloudEventURI,
+		Client:    r.CEClient,
+		Logger:    r.Logger,
+		Data:      data,
+		EL:        el,
+	}
+
+	go resource.SendCloudEvents()
 }
 
 func (r Sink) merge(et []triggersv1.EventListenerTrigger, trItems []*triggersv1.Trigger) ([]*triggersv1.Trigger, error) {
@@ -242,7 +313,7 @@ func (r Sink) merge(et []triggersv1.EventListenerTrigger, trItems []*triggersv1.
 	return triggers, nil
 }
 
-func (r Sink) processTriggerGroups(g triggersv1.EventListenerTriggerGroup, request *http.Request, event []byte, eventID string, eventLog *zap.SugaredLogger, wg *sync.WaitGroup) {
+func (r Sink) processTriggerGroups(g triggersv1.EventListenerTriggerGroup, el *triggersv1.EventListener, request *http.Request, event []byte, eventID string, eventLog *zap.SugaredLogger, wg *sync.WaitGroup) {
 	log := eventLog.With(zap.String(triggers.TriggerGroupLabelKey, g.Name))
 
 	extensions := map[string]interface{}{}
@@ -272,7 +343,7 @@ func (r Sink) processTriggerGroups(g triggersv1.EventListenerTriggerGroup, reque
 	// This request will be passed on to the triggers in this group
 	triggerReq := request.Clone(request.Context())
 	triggerReq.Header = header
-	triggerReq.Body = ioutil.NopCloser(bytes.NewBuffer(payload))
+	triggerReq.Body = io.NopCloser(bytes.NewBuffer(payload))
 
 	wg.Add(len(trItems))
 	for _, t := range trItems {
@@ -281,7 +352,7 @@ func (r Sink) processTriggerGroups(g triggersv1.EventListenerTriggerGroup, reque
 			// TODO(dibyom): We might be able to get away with only cloning if necessary
 			// i.e. if there are interceptors and iff those interceptors will modify the body/header (i.e. webhook)
 			localRequest := triggerReq.Clone(triggerReq.Context())
-			r.processTrigger(t, localRequest, event, eventID, log, extensions)
+			r.processTrigger(t, el, localRequest, event, eventID, log, extensions)
 		}(*t)
 	}
 }
@@ -335,7 +406,7 @@ func (r Sink) selectTriggers(namespaceSelector triggersv1.NamespaceSelector, lab
 	return trItems, nil
 }
 
-func (r Sink) processTrigger(t triggersv1.Trigger, request *http.Request, event []byte, eventID string, eventLog *zap.SugaredLogger, extensions map[string]interface{}) {
+func (r Sink) processTrigger(t triggersv1.Trigger, el *triggersv1.EventListener, request *http.Request, event []byte, eventID string, eventLog *zap.SugaredLogger, extensions map[string]interface{}) {
 	log := eventLog.With(zap.String(triggers.TriggerLabelKey, t.Name))
 
 	finalPayload, header, iresp, err := r.ExecuteTriggerInterceptors(t, request, event, log, eventID, extensions)
@@ -362,7 +433,7 @@ func (r Sink) processTrigger(t triggersv1.Trigger, request *http.Request, event 
 	if iresp != nil && iresp.Extensions != nil {
 		extensions = iresp.Extensions
 	}
-	params, err := template.ResolveParams(rt, finalPayload, header, extensions)
+	params, err := template.ResolveParams(rt, finalPayload, header, extensions, template.NewTriggerContext(eventID))
 	if err != nil {
 		log.Error(err)
 		return
@@ -376,6 +447,9 @@ func (r Sink) processTrigger(t triggersv1.Trigger, request *http.Request, event 
 		return
 	}
 	go r.recordResourceCreation(resources)
+	r.emitEvents(r.EventRecorder, el, events.TriggerProcessingSuccessfulV1, nil)
+	r.sendCloudEvents(request.Header, *el, eventID, events.TriggerProcessingSuccessfulV1)
+
 }
 
 func (r Sink) ExecuteTriggerInterceptors(t triggersv1.Trigger, in *http.Request, event []byte, log *zap.SugaredLogger, eventID string, extensions map[string]interface{}) ([]byte, http.Header, *triggersv1.InterceptorResponse, error) {
@@ -403,6 +477,24 @@ func (r Sink) ExecuteInterceptors(trInt []*triggersv1.TriggerInterceptor, in *ht
 		},
 	}
 
+	// check if string is urlencoded
+	// Parse the query string into a map
+	parsedQuery, _ := net.ParseQuery(request.Body)
+
+	// parse form-data payload
+	if v := in.Header.Get("Content-Type"); v == "application/x-www-form-urlencoded" && len(parsedQuery) > 1 {
+
+		// Convert the map into a JSON string
+		jsonString, err := json.Marshal(parsedQuery)
+		if err != nil {
+			log.Errorf("Error converting map to JSON:", err)
+			return nil, nil, nil, err
+		}
+		request.Body = string(jsonString)
+	}
+	// request is the request sent to the interceptors in the chain. Each interceptor can set the InterceptorParams field
+	// or add to the Extensions
+
 	for _, i := range trInt {
 		if i.Webhook != nil { // Old style interceptor
 			body, err := extendBodyWithExtensions([]byte(request.Body), request.Extensions)
@@ -413,7 +505,7 @@ func (r Sink) ExecuteInterceptors(trInt []*triggersv1.TriggerInterceptor, in *ht
 				Method: http.MethodPost,
 				Header: request.Header,
 				URL:    in.URL,
-				Body:   ioutil.NopCloser(bytes.NewBuffer(body)),
+				Body:   io.NopCloser(bytes.NewBuffer(body)),
 			}
 			interceptor := webhook.NewInterceptor(i.Webhook, r.HTTPClient, namespace, log)
 			res, err := interceptor.ExecuteTrigger(req)
@@ -421,7 +513,7 @@ func (r Sink) ExecuteInterceptors(trInt []*triggersv1.TriggerInterceptor, in *ht
 				return nil, nil, nil, err
 			}
 
-			payload, err := ioutil.ReadAll(res.Body)
+			payload, err := io.ReadAll(res.Body)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("error reading webhook interceptor response body: %w", err)
 			}
@@ -433,12 +525,39 @@ func (r Sink) ExecuteInterceptors(trInt []*triggersv1.TriggerInterceptor, in *ht
 			continue
 		}
 		request.InterceptorParams = interceptors.GetInterceptorParams(i)
-		url, err := interceptors.ResolveToURL(r.ClusterInterceptorLister.Get, i.GetName())
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("could not resolve interceptor URL: %w", err)
+
+		var url *apis.URL
+		if i.Ref.Kind == triggersv1.ClusterInterceptorKind {
+			ic, err := r.ClusterInterceptorLister.Get(i.GetName())
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("url resolution failed for interceptor %s with: %w", i.GetName(), err)
+			}
+			if ic.Status.Address != nil && ic.Status.Address.URL != nil {
+				url = ic.Status.Address.URL
+			} else if url, err = ic.ResolveAddress(); err != nil {
+				return nil, nil, nil, fmt.Errorf("url resolution failed for interceptor %s with: %w", i.GetName(), err)
+			}
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("could not resolve clusterinterceptor URL: %w", err)
+			}
+		} else if i.Ref.Kind == triggersv1.NamespacedInterceptorKind {
+			if r.InterceptorLister == nil {
+				r.Logger.Debugf("nil lister")
+			}
+			ic, err := r.InterceptorLister.Interceptors(r.EventListenerNamespace).Get(i.GetName())
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("url resolution failed for interceptor %s with: %w", i.GetName(), err)
+			}
+			if addr := ic.Status.Address; addr != nil && addr.URL != nil {
+				url = addr.URL
+			} else if url, err = ic.ResolveAddress(); err != nil {
+				return nil, nil, nil, fmt.Errorf("url resolution failed for interceptor %s with: %w", i.GetName(), err)
+			}
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("could not resolve nameSpacedinterceptor URL: %w", err)
+			}
 		}
 
-		// TODO: Plumb through context from EL
 		interceptorResponse, err := interceptors.Execute(context.Background(), r.HTTPClient, &request, url.String())
 		if err != nil {
 			return nil, nil, nil, err
@@ -453,9 +572,12 @@ func (r Sink) ExecuteInterceptors(trInt []*triggersv1.TriggerInterceptor, in *ht
 				request.Extensions[k] = v
 			}
 		}
+
 		// Clear interceptorParams for the next interceptor in chain
 		request.InterceptorParams = map[string]interface{}{}
+
 	}
+
 	return []byte(request.Body), request.Header, &triggersv1.InterceptorResponse{
 		Continue:   true,
 		Extensions: request.Extensions,

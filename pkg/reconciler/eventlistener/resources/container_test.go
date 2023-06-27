@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	reconcilersource "knative.dev/eventing/pkg/reconciler/source"
+	"knative.dev/pkg/ptr"
 )
 
 func TestContainer(t *testing.T) {
@@ -54,8 +55,14 @@ func TestContainer(t *testing.T) {
 				"--writetimeout=" + strconv.FormatInt(DefaultWriteTimeout, 10),
 				"--idletimeout=" + strconv.FormatInt(DefaultIdleTimeout, 10),
 				"--timeouthandler=" + strconv.FormatInt(DefaultTimeOutHandler, 10),
+				"--httpclient-readtimeout=" + strconv.FormatInt(DefaultHTTPClientReadTimeOut, 10),
+				"--httpclient-keep-alive=" + strconv.FormatInt(DefaultHTTPClientKeepAlive, 10),
+				"--httpclient-tlshandshaketimeout=" + strconv.FormatInt(DefaultHTTPClientTLSHandshakeTimeout, 10),
+				"--httpclient-responseheadertimeout=" + strconv.FormatInt(DefaultHTTPClientResponseHeaderTimeout, 10),
+				"--httpclient-expectcontinuetimeout=" + strconv.FormatInt(DefaultHTTPClientExpectContinueTimeout, 10),
 				"--is-multi-ns=" + strconv.FormatBool(false),
 				"--payload-validation=" + strconv.FormatBool(true),
+				"--cloudevent-uri=",
 			},
 			Env: []corev1.EnvVar{{
 				Name: "K_LOGGING_CONFIG",
@@ -72,7 +79,23 @@ func TestContainer(t *testing.T) {
 			}, {
 				Name:  "EL_EVENT",
 				Value: "disable",
+			}, {
+				Name:  "K_SINK_TIMEOUT",
+				Value: strconv.FormatInt(DefaultTimeOutHandler, 10),
 			}},
+			SecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: ptr.Bool(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+				},
+				// 65532 is the distroless nonroot user ID
+				RunAsUser:    ptr.Int64(65532),
+				RunAsGroup:   ptr.Int64(65532),
+				RunAsNonRoot: ptr.Bool(true),
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
 		},
 	}, {
 		name: "with resources option",
@@ -101,8 +124,14 @@ func TestContainer(t *testing.T) {
 				"--writetimeout=" + strconv.FormatInt(DefaultWriteTimeout, 10),
 				"--idletimeout=" + strconv.FormatInt(DefaultIdleTimeout, 10),
 				"--timeouthandler=" + strconv.FormatInt(DefaultTimeOutHandler, 10),
+				"--httpclient-readtimeout=" + strconv.FormatInt(DefaultHTTPClientReadTimeOut, 10),
+				"--httpclient-keep-alive=" + strconv.FormatInt(DefaultHTTPClientKeepAlive, 10),
+				"--httpclient-tlshandshaketimeout=" + strconv.FormatInt(DefaultHTTPClientTLSHandshakeTimeout, 10),
+				"--httpclient-responseheadertimeout=" + strconv.FormatInt(DefaultHTTPClientResponseHeaderTimeout, 10),
+				"--httpclient-expectcontinuetimeout=" + strconv.FormatInt(DefaultHTTPClientExpectContinueTimeout, 10),
 				"--is-multi-ns=" + strconv.FormatBool(false),
 				"--payload-validation=" + strconv.FormatBool(true),
+				"--cloudevent-uri=",
 			},
 			Resources: corev1.ResourceRequirements{
 				Requests: map[corev1.ResourceName]resource.Quantity{
@@ -124,7 +153,23 @@ func TestContainer(t *testing.T) {
 			}, {
 				Name:  "EL_EVENT",
 				Value: "disable",
+			}, {
+				Name:  "K_SINK_TIMEOUT",
+				Value: strconv.FormatInt(DefaultTimeOutHandler, 10),
 			}},
+			SecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: ptr.Bool(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+				},
+				// 65532 is the distroless nonroot user ID
+				RunAsUser:    ptr.Int64(65532),
+				RunAsGroup:   ptr.Int64(65532),
+				RunAsNonRoot: ptr.Bool(true),
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
 		},
 	}, {
 		name: "with env option",
@@ -152,13 +197,32 @@ func TestContainer(t *testing.T) {
 				"--writetimeout=" + strconv.FormatInt(DefaultWriteTimeout, 10),
 				"--idletimeout=" + strconv.FormatInt(DefaultIdleTimeout, 10),
 				"--timeouthandler=" + strconv.FormatInt(DefaultTimeOutHandler, 10),
+				"--httpclient-readtimeout=" + strconv.FormatInt(DefaultHTTPClientReadTimeOut, 10),
+				"--httpclient-keep-alive=" + strconv.FormatInt(DefaultHTTPClientKeepAlive, 10),
+				"--httpclient-tlshandshaketimeout=" + strconv.FormatInt(DefaultHTTPClientTLSHandshakeTimeout, 10),
+				"--httpclient-responseheadertimeout=" + strconv.FormatInt(DefaultHTTPClientResponseHeaderTimeout, 10),
+				"--httpclient-expectcontinuetimeout=" + strconv.FormatInt(DefaultHTTPClientExpectContinueTimeout, 10),
 				"--is-multi-ns=" + strconv.FormatBool(false),
 				"--payload-validation=" + strconv.FormatBool(true),
+				"--cloudevent-uri=",
 			},
 			Env: []corev1.EnvVar{{
 				Name:  "BAR",
 				Value: "food",
 			}},
+			SecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: ptr.Bool(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+				},
+				// 65532 is the distroless nonroot user ID
+				RunAsUser:    ptr.Int64(65532),
+				RunAsGroup:   ptr.Int64(65532),
+				RunAsNonRoot: ptr.Bool(true),
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
 		},
 	}, {
 		name: "with namespace selector",
@@ -180,8 +244,14 @@ func TestContainer(t *testing.T) {
 				"--writetimeout=" + strconv.FormatInt(DefaultWriteTimeout, 10),
 				"--idletimeout=" + strconv.FormatInt(DefaultIdleTimeout, 10),
 				"--timeouthandler=" + strconv.FormatInt(DefaultTimeOutHandler, 10),
+				"--httpclient-readtimeout=" + strconv.FormatInt(DefaultHTTPClientReadTimeOut, 10),
+				"--httpclient-keep-alive=" + strconv.FormatInt(DefaultHTTPClientKeepAlive, 10),
+				"--httpclient-tlshandshaketimeout=" + strconv.FormatInt(DefaultHTTPClientTLSHandshakeTimeout, 10),
+				"--httpclient-responseheadertimeout=" + strconv.FormatInt(DefaultHTTPClientResponseHeaderTimeout, 10),
+				"--httpclient-expectcontinuetimeout=" + strconv.FormatInt(DefaultHTTPClientExpectContinueTimeout, 10),
 				"--is-multi-ns=" + strconv.FormatBool(true),
 				"--payload-validation=" + strconv.FormatBool(true),
+				"--cloudevent-uri=",
 			},
 			Env: []corev1.EnvVar{{
 				Name: "K_LOGGING_CONFIG",
@@ -198,7 +268,23 @@ func TestContainer(t *testing.T) {
 			}, {
 				Name:  "EL_EVENT",
 				Value: "disable",
+			}, {
+				Name:  "K_SINK_TIMEOUT",
+				Value: strconv.FormatInt(DefaultTimeOutHandler, 10),
 			}},
+			SecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: ptr.Bool(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+				},
+				// 65532 is the distroless nonroot user ID
+				RunAsUser:    ptr.Int64(65532),
+				RunAsGroup:   ptr.Int64(65532),
+				RunAsNonRoot: ptr.Bool(true),
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
 		},
 	}, {
 		name: "without payload validation",
@@ -222,8 +308,14 @@ func TestContainer(t *testing.T) {
 				"--writetimeout=" + strconv.FormatInt(DefaultWriteTimeout, 10),
 				"--idletimeout=" + strconv.FormatInt(DefaultIdleTimeout, 10),
 				"--timeouthandler=" + strconv.FormatInt(DefaultTimeOutHandler, 10),
+				"--httpclient-readtimeout=" + strconv.FormatInt(DefaultHTTPClientReadTimeOut, 10),
+				"--httpclient-keep-alive=" + strconv.FormatInt(DefaultHTTPClientKeepAlive, 10),
+				"--httpclient-tlshandshaketimeout=" + strconv.FormatInt(DefaultHTTPClientTLSHandshakeTimeout, 10),
+				"--httpclient-responseheadertimeout=" + strconv.FormatInt(DefaultHTTPClientResponseHeaderTimeout, 10),
+				"--httpclient-expectcontinuetimeout=" + strconv.FormatInt(DefaultHTTPClientExpectContinueTimeout, 10),
 				"--is-multi-ns=" + strconv.FormatBool(false),
 				"--payload-validation=" + strconv.FormatBool(false),
+				"--cloudevent-uri=",
 			},
 			Env: []corev1.EnvVar{{
 				Name: "K_LOGGING_CONFIG",
@@ -240,7 +332,23 @@ func TestContainer(t *testing.T) {
 			}, {
 				Name:  "EL_EVENT",
 				Value: "disable",
+			}, {
+				Name:  "K_SINK_TIMEOUT",
+				Value: strconv.FormatInt(DefaultTimeOutHandler, 10),
 			}},
+			SecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: ptr.Bool(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+				},
+				// 65532 is the distroless nonroot user ID
+				RunAsUser:    ptr.Int64(65532),
+				RunAsGroup:   ptr.Int64(65532),
+				RunAsNonRoot: ptr.Bool(true),
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
 		},
 	}}
 

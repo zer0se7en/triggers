@@ -24,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -41,6 +40,7 @@ import (
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/serializer/streaming"
+	"knative.dev/pkg/logging"
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -69,6 +69,8 @@ func init() {
 	rootCmd.Flags().StringVarP(&httpPath, "httpPath", "r", "", "Path to body event")
 	rootCmd.PersistentFlags().StringVarP(&kubeconfig, "kubeconfig", "k", "", "absolute path to the kubeconfig file")
 }
+
+// revive:disable:unused-parameter
 
 func rootRun(cmd *cobra.Command, args []string) error {
 	err := trigger(triggerFile, httpPath, action, kubeconfig, os.Stdout)
@@ -102,11 +104,11 @@ func trigger(triggerFile, httpPath, action, kubeconfig string, writer io.Writer)
 		return fmt.Errorf("Failed to build config from the flags: %w", err)
 	}
 
-	logger, _ := zap.NewProduction()
-	sugerLogger := logger.Sugar()
+	ctx := context.Background()
+	logger := logging.FromContext(ctx)
 	eventID := template.UUID()
-	r := newSink(config, sugerLogger)
-	eventLog := sugerLogger.With(zap.String(triggers.EventIDLabelKey, eventID))
+	r := newSink(ctx, config)
+	eventLog := logger.With(zap.String(triggers.EventIDLabelKey, eventID))
 	for _, tri := range triggerConfigs {
 		resources, err := processTriggerSpec(kubeClient, triggerClient, tri,
 			request, body, eventID, eventLog, r)
@@ -178,13 +180,13 @@ func readHTTP(path string) (*http.Request, []byte, error) {
 		return nil, nil, fmt.Errorf("error reading HTTP file: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(request.Body)
+	body, err := io.ReadAll(request.Body)
 	defer request.Body.Close()
 	if err != nil {
 		return nil, nil, fmt.Errorf("error reading HTTP body: %w", err)
 	}
 
-	request.Body = ioutil.NopCloser(bytes.NewReader(body))
+	request.Body = io.NopCloser(bytes.NewReader(body))
 
 	return request, body, err
 }
@@ -229,7 +231,7 @@ func processTriggerSpec(kubeClient kubernetes.Interface, client triggersclientse
 	if iresp != nil && iresp.Extensions != nil {
 		extensions = iresp.Extensions
 	}
-	params, err := template.ResolveParams(rt, finalPayload, header, extensions)
+	params, err := template.ResolveParams(rt, finalPayload, header, extensions, template.NewTriggerContext(eventID))
 	if err != nil {
 		log.Error("Failed to resolve parameters", err)
 		return nil, err
@@ -241,8 +243,8 @@ func processTriggerSpec(kubeClient kubernetes.Interface, client triggersclientse
 	return resources, nil
 }
 
-func newSink(config *rest.Config, sugerLogger *zap.SugaredLogger) sink.Sink {
-	sinkClients, err := sink.ConfigureClients(config)
+func newSink(ctx context.Context, config *rest.Config) sink.Sink {
+	sinkClients, err := sink.ConfigureClients(ctx, config)
 	if err != nil {
 		log.Fatalf("Failed to get the sink client: %v", err)
 	}
@@ -265,7 +267,7 @@ func newSink(config *rest.Config, sugerLogger *zap.SugaredLogger) sink.Sink {
 		WGProcessTriggers:      &sync.WaitGroup{},
 		DiscoveryClient:        sinkClients.DiscoveryClient,
 		DynamicClient:          dynamicCS,
-		Logger:                 sugerLogger,
+		Logger:                 logging.FromContext(ctx),
 		EventListenerNamespace: "default",
 	}
 
